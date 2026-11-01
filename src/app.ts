@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { openDatabase } from './db.ts';
 import { errorEnvelope, NOT_FOUND_MESSAGE, toErrorResponse } from './errors.ts';
@@ -11,6 +13,8 @@ export interface BuildAppOptions {
 }
 
 const DEFAULT_DB_PATH = 'data/todos.db';
+// The browser UI lives in public/ at the repo root, next to src/.
+const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -37,6 +41,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.get('/api/health', async () => ({ status: 'ok' }));
   registerTodoRoutes(app);
+
+  // Static UI at /. Only GET/HEAD files that exist are served; /api/* and
+  // unknown paths fall through to the JSON 404 handler below.
+  app.register(fastifyStatic, { root: PUBLIC_DIR, prefix: '/' });
 
   // Every error response uses the { error: { code, message } } envelope (spec 01).
   app.setErrorHandler((error: unknown, request, reply) => {

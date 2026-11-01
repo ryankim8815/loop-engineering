@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>할 일 목록</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <div id="error-banner" class="error-banner" role="alert" hidden></div>
+
+      <h1>할 일 목록</h1>
+
+      <div class="new-todo">
+        <label for="new-title">새 할 일</label>
+        <input id="new-title" type="text" autocomplete="off" />
+        <button id="add-button" type="button">추가</button>
+        <p id="new-title-hint" class="hint" aria-live="polite"></p>
+      </div>
+
+      <ul id="todo-list" class="todo-list"></ul>
+
+      <footer class="footer">
+        <span id="remaining-count"></span>
+        <nav class="filters">
+          <a href="#/">전체</a>
+          <a href="#/active">진행 중</a>
+          <a href="#/completed">완료</a>
+        </nav>
+        <button id="clear-completed" type="button">완료 항목 삭제</button>
+      </footer>
+    </main>
+
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

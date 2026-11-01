@@ -37,21 +37,6 @@ Conventions for every item:
 
 ### Web UI
 
-- [ ] **10. Static serving + HTML skeleton.** Register `@fastify/static` (root `public/`, `index.html` at
-      `/`) so it doesn't shadow `/api/*` and unknown paths still reach the JSON 404 handler from item 3
-      (re-run the AC-API-12 tests, including the `Accept: text/html` case). Create `public/index.html`
-      (`lang="ko"`, viewport meta) and `public/styles.css`, with stable ids:
-      - `#new-title` input with `<label>`, `#add-button` "추가", `#new-title-hint` (aria-live) near the input
-      - `#todo-list` `<ul>`
-      - footer: `#remaining-count`, filter links `a[href="#/"]`, `a[href="#/active"]`, `a[href="#/completed"]`,
-        `#clear-completed` "완료 항목 삭제"
-      - `#error-banner` with `role="alert"` (hidden when empty), at the top of the page
-      - `<script type="module" src="/main.js">` and `<link rel="stylesheet" href="/styles.css">`
-      Tests (`tests/ui.static.test.ts`, node env, `app.inject()`):
-      - AC-UI-1: `GET /` → 200, `text/html`, contains the input, list and filter elements
-      - `GET /styles.css` → `text/css`; `GET /missing.js` → JSON 404 envelope
-      _AC-UI-2 is asserted in item 13a, once real modules exist. No placeholder JS here._
-
 - [ ] **11. Pure UI state module.** `public/state.js` (ES module, no DOM access, JSDoc types):
       `filterTodos(todos, filter)`, `countRemaining(todos)`, `validateTitle(raw)` →
       `{ ok: true, value } | { ok: false, message }` (trim, 1–200 code points, the same rule as the server),
@@ -181,3 +166,8 @@ answered in specs 01/02. See "Current state".
   Tests in `tests/todos-bulk-delete.api.test.ts`: AC-API-7 (mixed set, and none completed → `{ deleted: 0 }`),
   AC-API-10 (no query, `completed=false`, repeated `completed` → 400, list unchanged). `npm run check` is
   green (99 tests).
+- **10. Static serving + HTML skeleton.** `src/app.ts` registers `@fastify/static` (root `public/`, prefix `/`).
+  `public/index.html` (`lang="ko"`, viewport, stable ids per the plan) and `public/styles.css` (no JS yet).
+  `<script type="module" src="/main.js">` points at a file that arrives in 13a, so a browser currently 404s on it.
+  Tests in `tests/ui.static.test.ts`: AC-UI-1 (`/` HTML, `/styles.css` text/css, unknown static path → JSON 404,
+  `/api/*` not shadowed). AC-UI-2 stays open for 13a. `npm run check` is green (105 tests).
