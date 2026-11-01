@@ -3,7 +3,13 @@
 // with a DOM harness and a fake fetch. The pure rules (title validation, filtering) come
 // from state.js. Each action re-renders the whole list from the in-memory copy of server state.
 
-import { countRemaining, filterTodos, parseFilterFromHash, validateTitle } from './state.js';
+import {
+  countRemaining,
+  filterTodos,
+  parseFilterFromHash,
+  resolveEdit,
+  validateTitle,
+} from './state.js';
 
 /**
  * @typedef {import('./state.js').Todo} Todo
@@ -77,6 +83,18 @@ export function startApp({ document, window, api }) {
     const title = document.createElement('span');
     title.className = 'todo-title';
     title.textContent = todo.title;
+    title.addEventListener('dblclick', () => {
+      startEdit(todo.id);
+    });
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'todo-edit-button';
+    edit.textContent = '수정';
+    edit.setAttribute('aria-label', `수정: ${todo.title}`);
+    edit.addEventListener('click', () => {
+      startEdit(todo.id);
+    });
 
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -87,8 +105,65 @@ export function startApp({ document, window, api }) {
       removeTodo(todo.id);
     });
 
-    item.append(checkbox, title, remove);
+    item.append(checkbox, title, edit, remove);
     return item;
+  }
+
+  // Replaces the title with an edit input (AC-UI-7). Enter commits, Esc and blur cancel.
+  // `finished` makes the first outcome win. Removing the editor can fire a blur, and that
+  // blur must not cancel or send a second action after Enter/Esc already did.
+  // The item is looked up by id, not captured, because an earlier blur may have re-rendered
+  // the list before this runs (for example, a double-click on a different item).
+  function startEdit(id) {
+    const todo = todos.find((t) => t.id === id);
+    const item = [...list.children].find((li) => li.dataset.id === id);
+    const titleSpan = item?.querySelector('.todo-title');
+    if (!todo || !titleSpan) {
+      return;
+    }
+
+    const editor = document.createElement('input');
+    editor.type = 'text';
+    editor.className = 'todo-edit';
+    editor.value = todo.title;
+    editor.setAttribute('aria-label', `제목 수정: ${todo.title}`);
+    let finished = false;
+
+    function cancel() {
+      if (finished) return;
+      finished = true;
+      render();
+    }
+
+    async function commit() {
+      if (finished) return;
+      finished = true;
+      const result = resolveEdit(todo.title, editor.value);
+      if (result.action === 'cancel') {
+        render();
+        return;
+      }
+      const updated = await api.update(todo.id, { title: result.value });
+      todos = todos.map((t) => (t.id === updated.id ? updated : t));
+      render();
+    }
+
+    editor.addEventListener('keydown', (event) => {
+      // Enter during IME composition confirms a syllable; it must not commit (as in add).
+      if (event.isComposing) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        commit();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cancel();
+      }
+    });
+    editor.addEventListener('blur', cancel);
+
+    titleSpan.replaceWith(editor);
+    editor.focus();
+    editor.select();
   }
 
   // Waits for the server before changing local state, so the list always mirrors what

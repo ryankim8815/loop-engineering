@@ -37,17 +37,6 @@ Conventions for every item:
 
 ### Web UI
 
-- [ ] **15. Inline edit.** Double-click a title → an edit `<input>` (focused, prefilled). Enter →
-      `PATCH {title}` and the new title is shown. Esc, Enter with an empty/whitespace value, and **blur**
-      (spec 02) all cancel: no request, original title restored (use `resolveEdit`). Make sure the
-      Enter/Esc paths don't also fire a second action from the blur that follows the editor's removal.
-      `resolveEdit` does not check the 200-code-point limit (it only trims and compares). Over-length
-      input therefore sends a PATCH and gets the server's 400, which item 16 shows in the banner. Decide
-      whether to validate with `validateTitle` before the PATCH instead; the spec has no answer yet.
-      Keyboard access: an `aria-label`ed edit button (or Enter/F2 on a focusable title) opens the same editor.
-      Tests (DOM): AC-UI-7. Double-click shows the editor; Enter sends one PATCH; Esc, an empty value and
-      blur each send nothing and restore the original title.
-
 - [ ] **16. API error banner + resync.** Every API call goes through one handler. On an `ApiError` or a
       network error, it shows the message in `#error-banner` (`role="alert"`, unhidden), then re-fetches
       the list and re-renders. The banner clears on the next successful action.
@@ -71,6 +60,10 @@ Conventions for every item:
 
 ## Open questions
 
+- Inline edit over-length titles (item 15 chose the default): `resolveEdit` does not check the 200-code-point
+  limit, so an over-long edit sends a PATCH and gets the server's 400. Spec 02 does not say whether the UI
+  should validate first (for example, keep the editor open with a message). Decide when the spec is clarified.
+
 - `npm install` reported 3 moderate npm audit advisories. The audit command was blocked in this iteration, so
   the affected package is unknown. Run `npm audit --omit=dev` (runtime deps) and `npm audit` (all) to triage.
   Only fix them if the fix is non-breaking and `npm run check` stays green.
@@ -79,6 +72,15 @@ The three former questions (blur behaviour, unsupported Content-Type, JSON 404 f
 answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **15. Inline edit.** `public/app.js` `startEdit(id)`: double-click on a title, or the `수정` button
+  (`aria-label` "수정: …", keyboard path), swaps the title for a focused, prefilled `.todo-edit` input. Enter
+  (not during IME composition) → `resolveEdit`: save sends one `PATCH {title}` and re-renders from the server copy.
+  Esc, empty/whitespace, unchanged, and blur all cancel with no request (`render()` restores the title). A
+  `finished` flag makes the first outcome win, so the blur fired by the editor's own removal does nothing.
+  The item is looked up by id at call time, because a blur can re-render the list before a dblclick lands.
+  Tests in `tests/ui.dom.test.ts`: AC-UI-7 (10 cases). Known gap, owned by item 16: a failed PATCH rejects unhandled.
+  `npm run check` is green (161 tests).
 
 - Ralph loop environment, toolchain and smoke test (`tests/toolchain.smoke.test.ts`), commit `6683f7f`.
 - Spec clarifications (empty PATCH, query params, bulk-delete guard, non-UUID ids, code-point titles,

@@ -221,6 +221,153 @@ describe('AC-UI-6: filters follow the URL hash', () => {
   });
 });
 
+describe('AC-UI-7: inline edit', () => {
+  function titleSpan(document: Document, title: string): HTMLElement {
+    const span = itemFor(document, title).querySelector<HTMLElement>('.todo-title');
+    if (!span) throw new Error(`no title span for "${title}"`);
+    return span;
+  }
+
+  function editorIn(document: Document): HTMLInputElement {
+    const editor = document.querySelector<HTMLInputElement>('#todo-list .todo-edit');
+    if (!editor) throw new Error('no inline editor open');
+    return editor;
+  }
+
+  it('double-clicking a title opens a focused editor prefilled with the title', async () => {
+    const { document, server } = await mountApp([existing]);
+
+    titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+
+    const editor = editorIn(document);
+    expect(editor.value).toBe('existing');
+    expect(document.activeElement).toBe(editor);
+    expect(writes(server.requests)).toEqual([]);
+  });
+
+  it('the 수정 button opens the same editor (keyboard path)', async () => {
+    const { document, server } = await mountApp([existing]);
+    const edit = document.querySelector<HTMLButtonElement>('button[aria-label="수정: existing"]');
+    if (!edit) throw new Error('수정 button missing');
+
+    edit.click();
+
+    expect(editorIn(document).value).toBe('existing');
+    expect(writes(server.requests)).toEqual([]);
+  });
+
+  it('Enter sends one PATCH {title} with the trimmed value and shows the new title', async () => {
+    const { document, server } = await mountApp([existing]);
+    titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+
+    const editor = editorIn(document);
+    editor.value = '  renamed  ';
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await flush();
+
+    expect(writes(server.requests)).toEqual([
+      { method: 'PATCH', url: `/api/todos/${existing.id}`, body: { title: 'renamed' } },
+    ]);
+    expect(listTitles(document)).toEqual(['renamed']);
+    expect(document.querySelector('#todo-list .todo-edit')).toBeNull();
+  });
+
+  it('Esc sends nothing and restores the original title', async () => {
+    const { document, server } = await mountApp([existing]);
+    titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+
+    const editor = editorIn(document);
+    editor.value = 'changed';
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flush();
+
+    expect(writes(server.requests)).toEqual([]);
+    expect(listTitles(document)).toEqual(['existing']);
+    expect(document.querySelector('#todo-list .todo-edit')).toBeNull();
+  });
+
+  it('Enter with an empty or whitespace-only value sends nothing and restores the title', async () => {
+    const { document, server } = await mountApp([existing]);
+
+    for (const raw of ['', '   ']) {
+      titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      const editor = editorIn(document);
+      editor.value = raw;
+      editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      await flush();
+    }
+
+    expect(writes(server.requests)).toEqual([]);
+    expect(listTitles(document)).toEqual(['existing']);
+  });
+
+  it('Enter with an unchanged title sends nothing', async () => {
+    const { document, server } = await mountApp([existing]);
+    titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+
+    editorIn(document).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await flush();
+
+    expect(writes(server.requests)).toEqual([]);
+    expect(listTitles(document)).toEqual(['existing']);
+  });
+
+  it('blur cancels: no request, original title restored', async () => {
+    const { document, server } = await mountApp([existing]);
+    titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+
+    const editor = editorIn(document);
+    editor.value = 'changed';
+    editor.dispatchEvent(new FocusEvent('blur'));
+    await flush();
+
+    expect(writes(server.requests)).toEqual([]);
+    expect(listTitles(document)).toEqual(['existing']);
+  });
+
+  it('Enter then the blur from the editor removal sends only one PATCH', async () => {
+    const { document, server } = await mountApp([existing]);
+    titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+
+    const editor = editorIn(document);
+    editor.value = 'renamed';
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    // The editor is removed when the list re-renders; a blur fired then must do nothing.
+    editor.dispatchEvent(new FocusEvent('blur'));
+    await flush();
+
+    expect(writes(server.requests)).toHaveLength(1);
+    expect(listTitles(document)).toEqual(['renamed']);
+  });
+
+  it('Esc then the blur from the editor removal sends nothing extra', async () => {
+    const { document, server } = await mountApp([existing]);
+    titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+
+    const editor = editorIn(document);
+    editor.value = 'changed';
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    editor.dispatchEvent(new FocusEvent('blur'));
+    await flush();
+
+    expect(writes(server.requests)).toEqual([]);
+    expect(listTitles(document)).toEqual(['existing']);
+  });
+
+  it('Enter during IME composition does not commit the edit', async () => {
+    const { document, server } = await mountApp([existing]);
+    titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+
+    const editor = editorIn(document);
+    editor.value = '우유';
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true }));
+    await flush();
+
+    expect(writes(server.requests)).toEqual([]);
+    expect(editorIn(document).value).toBe('우유');
+  });
+});
+
 describe('clear completed', () => {
   afterEach(() => {
     window.location.hash = '';
