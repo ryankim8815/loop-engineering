@@ -35,18 +35,6 @@ Conventions for every item:
 
 ### REST API
 
-- [ ] **7. `GET` / `PATCH` / `DELETE /api/todos/:id`.** GET → 200; PATCH → 200 with the updated Todo;
-      DELETE → 204 with an empty body. Tests:
-      - AC-API-4: after `PATCH {completed:true}` the todo is in `filter=completed` and not in `filter=active`
-      - AC-API-5: after PATCH, `updatedAt` > previous and `createdAt` is unchanged (also two PATCHes back-to-back)
-      - AC-API-6: GET/PATCH/DELETE on a non-existent UUID → 404 `NOT_FOUND`; a non-UUID id (`/api/todos/abc`)
-        → 404 too
-      - AC-API-9: `PATCH {}` → 400 `VALIDATION_ERROR`, and a following GET shows title, completed and
-        `updatedAt` unchanged
-      - a PATCH title is trimmed and validated like POST; unknown PATCH field → 400; `completed: "yes"` → 400;
-        `text/plain` PATCH → 400
-      - DELETE with no body and no Content-Type → 204 (the shape the UI client will send)
-
 - [ ] **8. `DELETE /api/todos?completed=true` (bulk clear).** → `200 { "deleted": n }`. Tests:
       - AC-API-7: a mix of completed/active → only completed removed and `deleted` matches; none completed → `{ deleted: 0 }`
       - AC-API-10: `DELETE /api/todos` (no query) and `?completed=false` → 400 `VALIDATION_ERROR`, and the
@@ -190,3 +178,8 @@ answered in specs 01/02. See "Current state".
   `setNotFoundHandler` (JSON 404 for all paths). `tests/errors.test.ts` covers AC-API-12 and the error
   paths. Discovery: Fastify ships a built-in `text/plain` parser, so `app.ts` removes it. Without that,
   text/plain bodies returned 200 instead of 400. `npm run check` is green (12 tests).
+- **7. `GET` / `PATCH` / `DELETE /api/todos/:id`.** `src/routes/todos.ts`: GET → 200 Todo; PATCH → 200 with the
+  updated Todo (body validated before the lookup, so a bad body is 400 even for a missing id); DELETE → 204 with
+  an empty body. Missing or non-UUID ids → 404 `NOT_FOUND`. Tests in `tests/todo-by-id.api.test.ts`: AC-API-4,
+  5 (incl. back-to-back PATCHes), 6 (UUID and non-UUID), 9, plus PATCH title trim/limit, unknown field,
+  `completed: "yes"`, text/plain, and DELETE with no body or Content-Type. `npm run check` is green (94 tests).
