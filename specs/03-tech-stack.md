@@ -11,8 +11,14 @@
 | 테스트 | Vitest | API는 `app.inject()`로 테스트(실제 포트 바인딩 불필요) |
 | Lint/Format | Biome | `biome.json` 설정을 따른다 |
 
-새 런타임 의존성은 위 표에 있는 패키지(`fastify`, `@fastify/static`)만 허용한다.
+허용되는 의존성은 다음이 전부다.
+
+- **런타임**: `fastify`, `@fastify/static`
+- **개발용**: 이미 설치된 `typescript`, `vitest`, `@biomejs/biome`, `@types/node`에 더해 `happy-dom`(DOM 테스트용)
+
 그 밖의 패키지가 꼭 필요하면 구현하지 말고 `IMPLEMENTATION_PLAN.md`에 사유를 남긴다.
+
+DOM 테스트 파일은 맨 위에 `// @vitest-environment happy-dom` 주석을 달아 그 파일만 DOM 환경으로 실행한다. 다른 테스트는 기본 `node` 환경을 유지한다.
 
 ## 코드 구조
 
