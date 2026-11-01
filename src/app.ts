@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { openDatabase } from './db.ts';
 import { errorEnvelope, NOT_FOUND_MESSAGE, toErrorResponse } from './errors.ts';
+import { registerTodoRoutes } from './routes/todos.ts';
 import { TodoRepository } from './todo-repository.ts';
 
 export interface BuildAppOptions {
@@ -35,6 +36,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.removeContentTypeParser('text/plain');
 
   app.get('/api/health', async () => ({ status: 'ok' }));
+  registerTodoRoutes(app);
 
   // Every error response uses the { error: { code, message } } envelope (spec 01).
   app.setErrorHandler((error: unknown, request, reply) => {

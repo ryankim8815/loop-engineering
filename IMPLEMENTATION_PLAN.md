@@ -35,17 +35,6 @@ Conventions for every item:
 
 ### REST API
 
-- [ ] **6. `POST /api/todos` + `GET /api/todos?filter=`.** `src/routes/todos.ts`, registered in
-      `buildApp`. Create → 201 + full Todo; list → 200 array in `createdAt` ascending order.
-      Tests in `tests/todos.api.test.ts`:
-      - AC-API-1: a created todo appears in the list with `completed: false`
-      - AC-API-2: `"  우유 사기  "` is stored as `"우유 사기"`
-      - AC-API-3: `""`, `"   "`, 201-char title → 400 `VALIDATION_ERROR`
-      - AC-API-11: 200 emoji (e.g. `'😀'.repeat(200)`) → 201; 201 emoji → 400
-      - invalid `filter` → 400; an unknown query param (e.g. `?foo=1`) is ignored → 200
-      - unknown body field → 400; non-string title → 400; `text/plain` body on the real route → 400
-      - response shape: UUID v4 `id`, ISO `createdAt`/`updatedAt`; list order preserved
-
 - [ ] **7. `GET` / `PATCH` / `DELETE /api/todos/:id`.** GET → 200; PATCH → 200 with the updated Todo;
       DELETE → 204 with an empty body. Tests:
       - AC-API-4: after `PATCH {completed:true}` the todo is in `filter=completed` and not in `filter=active`
@@ -190,6 +179,10 @@ answered in specs 01/02. See "Current state".
   `parseFilter`, `parseBulkDeleteQuery`, `isUuid`. Reuses `TodoFilter` from `todo-repository.ts`. Pure
   functions, so no DB or HTTP needed. Unit tests in `tests/validation.test.ts` (AC-API-2, 3, 9, 10, 11
   at the unit level). The route-level acceptance is covered in items 6–8. `npm run check` is green (67 tests).
+- **6. `POST /api/todos` + `GET /api/todos?filter=`.** `src/routes/todos.ts` `registerTodoRoutes(app)`, called
+  from `buildApp`. Tests in `tests/todos.api.test.ts`: AC-API-1, AC-API-2, AC-API-3, AC-API-11 (route level),
+  plus invalid `filter` → 400, unknown query ignored, unknown/non-string body fields, `text/plain`, no body,
+  response shape and list order. `npm run check` is green (81 tests). AC-API-4…10 are still open (items 7–8).
 - **3. Central error handling.** `src/errors.ts`: `AppError`, `validationError`, `notFound`,
   `errorEnvelope`, `toErrorResponse` (the single mapping to the envelope). `src/app.ts` wires
   `setErrorHandler` (AppError → own status; Fastify body/media-type/validation errors → 400
