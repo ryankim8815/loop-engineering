@@ -37,13 +37,6 @@ Conventions for every item:
 
 ### Web UI
 
-- [ ] **16. API error banner + resync.** Every API call goes through one handler. On an `ApiError` or a
-      network error, it shows the message in `#error-banner` (`role="alert"`, unhidden), then re-fetches
-      the list and re-renders. The banner clears on the next successful action.
-      Tests (DOM): AC-UI-8. Make the fake `fetch` return a 400/500 envelope for one PATCH (or POST). The
-      banner text must equal the envelope message, a follow-up `GET /api/todos` must have been issued, and
-      the DOM must match the fake server's state.
-
 - [ ] **17. Styles, accessibility & responsive layout.** `public/styles.css`: strikethrough for
       `.completed`, a visible selected filter, a visible `:focus-visible`, `box-sizing: border-box`,
       `max-width: 100%`, `overflow-wrap: anywhere` for long titles so 360px has no horizontal scroll.
@@ -73,14 +66,21 @@ answered in specs 01/02. See "Current state".
 
 ## Done
 
+- **16. API error banner + resync.** `public/app.js` `perform(action)` wraps every API call (add, toggle, edit,
+  delete, clear, and the initial load). Success clears `#error-banner`. Failure re-renders from local state (which
+  reverts an optimistic checkbox or a closed editor), shows `errorMessage` (ApiError → envelope message, anything
+  else → a connection message), then `resync()` re-fetches the list. A failed re-fetch shows its own error and does
+  not retry. The initial-load failure shows the banner and does not retry. `perform` never rejects, so no
+  unhandled rejections remain. The harness gained `failNext(method, outcome)` and `mountApp(seed, beforeStart)`.
+  Tests in `tests/ui.dom.test.ts`: AC-UI-8 (9 cases). `npm run check` is green (170 tests).
+
 - **15. Inline edit.** `public/app.js` `startEdit(id)`: double-click on a title, or the `수정` button
   (`aria-label` "수정: …", keyboard path), swaps the title for a focused, prefilled `.todo-edit` input. Enter
   (not during IME composition) → `resolveEdit`: save sends one `PATCH {title}` and re-renders from the server copy.
   Esc, empty/whitespace, unchanged, and blur all cancel with no request (`render()` restores the title). A
   `finished` flag makes the first outcome win, so the blur fired by the editor's own removal does nothing.
   The item is looked up by id at call time, because a blur can re-render the list before a dblclick lands.
-  Tests in `tests/ui.dom.test.ts`: AC-UI-7 (10 cases). Known gap, owned by item 16: a failed PATCH rejects unhandled.
-  `npm run check` is green (161 tests).
+  Tests in `tests/ui.dom.test.ts`: AC-UI-7 (10 cases).  `npm run check` is green (161 tests).
 
 - Ralph loop environment, toolchain and smoke test (`tests/toolchain.smoke.test.ts`), commit `6683f7f`.
 - Spec clarifications (empty PATCH, query params, bulk-delete guard, non-UUID ids, code-point titles,
@@ -142,20 +142,18 @@ answered in specs 01/02. See "Current state".
   and sends nothing. `public/main.js` is the only side-effecting bootstrap. `startApp` takes no `window` yet
   (item 14 adds it for `location.hash`). Harness `tests/helpers/dom.ts` (`mountApp`, stateful fake API that
   records requests, `flush`). Tests: AC-UI-4 in `tests/ui.dom.test.ts`, AC-UI-2 in `tests/ui.static.test.ts`.
-  Known gap, owned by item 16: a failed add rejects unhandled. `npm run check` is green (144 tests).
+  `npm run check` is green (144 tests).
 - **13b. Toggle, delete, remaining counter.** Each item has a checkbox (`aria-label` "완료: …") and a `삭제`
   button (`aria-label` "삭제: …"). A toggle sends `PATCH {completed}` and waits for the server before
   re-rendering, so local state mirrors what the server accepted. The `completed` class marks done items.
   `#remaining-count` shows `N개 남음` via `countRemaining`. Tests in `tests/ui.dom.test.ts`: AC-UI-5.
-  Known gap, owned by item 16: a failed toggle or delete rejects unhandled, and a failed toggle leaves
-  the checkbox showing the new state. `npm run check` is green (147 tests).
+  `npm run check` is green (147 tests).
 - **14. Filters, hash routing, clear completed.** `startApp` takes `window` (passed from `main.js`). The full list
   stays in memory and is filtered locally (`filterTodos`), so switching filters sends no request. Filter links
   set `location.hash` (click is `preventDefault`ed, and the filter is also applied directly). `hashchange` and the
   initial hash drive the filter. The selected link gets `aria-current="page"` and class `selected`. "완료 항목
   삭제" waits for `DELETE ?completed=true`, then drops completed items. Tests in `tests/ui.dom.test.ts`: AC-UI-6
-  (click, initial hash, hashchange) and clear-completed. Known gap, owned by item 16: a failed clear rejects
-  unhandled. `npm run check` is green (151 tests).
+  (click, initial hash, hashchange) and clear-completed. `npm run check` is green (151 tests).
 - **12. API client module.** `public/api.js` `createApi(fetchImpl)`: `list`, `create`, `update`, `remove`,
   `clearCompleted`. `Content-Type` is sent only with a body (DELETE stays bodyless, since Fastify rejects an
   empty JSON body). Non-2xx → `ApiError` (`code`, `message`, `status`) from the spec 01 envelope; a non-JSON or

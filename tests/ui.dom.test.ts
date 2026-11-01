@@ -20,6 +20,18 @@ function itemFor(document: Document, title: string): HTMLLIElement {
   return item;
 }
 
+function titleSpan(document: Document, title: string): HTMLElement {
+  const span = itemFor(document, title).querySelector<HTMLElement>('.todo-title');
+  if (!span) throw new Error(`no title span for "${title}"`);
+  return span;
+}
+
+function editorIn(document: Document): HTMLInputElement {
+  const editor = document.querySelector<HTMLInputElement>('#todo-list .todo-edit');
+  if (!editor) throw new Error('no inline editor open');
+  return editor;
+}
+
 function remainingText(document: Document): string {
   return document.querySelector('#remaining-count')?.textContent ?? '';
 }
@@ -222,18 +234,6 @@ describe('AC-UI-6: filters follow the URL hash', () => {
 });
 
 describe('AC-UI-7: inline edit', () => {
-  function titleSpan(document: Document, title: string): HTMLElement {
-    const span = itemFor(document, title).querySelector<HTMLElement>('.todo-title');
-    if (!span) throw new Error(`no title span for "${title}"`);
-    return span;
-  }
-
-  function editorIn(document: Document): HTMLInputElement {
-    const editor = document.querySelector<HTMLInputElement>('#todo-list .todo-edit');
-    if (!editor) throw new Error('no inline editor open');
-    return editor;
-  }
-
   it('double-clicking a title opens a focused editor prefilled with the title', async () => {
     const { document, server } = await mountApp([existing]);
 
@@ -386,5 +386,194 @@ describe('clear completed', () => {
     ]);
     expect(listTitles(document)).toEqual(['existing']);
     expect(remainingText(document)).toBe('1개 남음');
+  });
+
+  it('AC-UI-8: a failed clear shows the banner and keeps the completed items it could not delete', async () => {
+    const { document, server } = await mountApp([existing, done]);
+    server.failNext('DELETE', {
+      status: 500,
+      code: 'INTERNAL_ERROR',
+      message: '서버 오류가 발생했습니다.',
+    });
+
+    document.querySelector<HTMLButtonElement>('#clear-completed')?.click();
+    await flush();
+
+    expect(bannerText(document)).toBe('서버 오류가 발생했습니다.');
+    expect(listTitles(document)).toEqual(['existing', 'done']);
+  });
+});
+
+const elsewhere: Todo = {
+  id: '33333333-3333-4333-8333-333333333333',
+  title: 'added elsewhere',
+  completed: false,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
+const NETWORK_MESSAGE = '서버에 연결할 수 없습니다. 연결을 확인해 주세요.';
+
+function bannerText(document: Document): string {
+  return document.querySelector('#error-banner')?.textContent ?? '';
+}
+
+function bannerShown(document: Document): boolean {
+  const banner = document.querySelector<HTMLElement>('#error-banner');
+  if (!banner) throw new Error('#error-banner missing');
+  return !banner.hidden;
+}
+
+describe('AC-UI-8: API errors show a banner and re-sync the list', () => {
+  it('a failed toggle shows the envelope message, reverts the checkbox, and re-fetches the list', async () => {
+    const { document, server } = await mountApp([existing]);
+    // Another client changed the server. The UI only learns about it from the re-fetch.
+    server.todos.push(elsewhere);
+    server.failNext('PATCH', {
+      status: 500,
+      code: 'INTERNAL_ERROR',
+      message: '서버 오류가 발생했습니다.',
+    });
+
+    itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.click();
+    await flush();
+
+    const banner = document.querySelector<HTMLElement>('#error-banner');
+    expect(banner?.getAttribute('role')).toBe('alert');
+    expect(bannerShown(document)).toBe(true);
+    expect(bannerText(document)).toBe('서버 오류가 발생했습니다.');
+    expect(server.requests.slice(-2).map((r) => `${r.method} ${r.url}`)).toEqual([
+      `PATCH /api/todos/${existing.id}`,
+      'GET /api/todos?filter=all',
+    ]);
+    expect(listTitles(document)).toEqual(['existing', 'added elsewhere']);
+    expect(
+      itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.checked,
+    ).toBe(false);
+  });
+
+  it('a failed add keeps the typed title in the input, appends nothing, and re-fetches the list', async () => {
+    const { document, server } = await mountApp([existing]);
+    server.failNext('POST', {
+      status: 400,
+      code: 'VALIDATION_ERROR',
+      message: '제목이 올바르지 않습니다.',
+    });
+    const input = document.querySelector<HTMLInputElement>('#new-title');
+    if (!input) throw new Error('#new-title missing');
+
+    input.value = 'buy milk';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await flush();
+
+    expect(bannerText(document)).toBe('제목이 올바르지 않습니다.');
+    expect(input.value).toBe('buy milk');
+    expect(listTitles(document)).toEqual(['existing']);
+    expect(server.requests.at(-1)).toEqual({
+      method: 'GET',
+      url: '/api/todos?filter=all',
+      body: undefined,
+    });
+  });
+
+  it('a failed delete shows the banner and keeps the item the server still has', async () => {
+    const { document, server } = await mountApp([existing]);
+    server.failNext('DELETE', {
+      status: 500,
+      code: 'INTERNAL_ERROR',
+      message: '서버 오류가 발생했습니다.',
+    });
+
+    itemFor(document, 'existing').querySelector<HTMLButtonElement>('.todo-delete')?.click();
+    await flush();
+
+    expect(bannerText(document)).toBe('서버 오류가 발생했습니다.');
+    expect(listTitles(document)).toEqual(['existing']);
+  });
+
+  it('a failed inline edit restores the original title and leaves no editor behind', async () => {
+    const { document, server } = await mountApp([existing]);
+    server.failNext('PATCH', {
+      status: 400,
+      code: 'VALIDATION_ERROR',
+      message: '제목이 올바르지 않습니다.',
+    });
+    titleSpan(document, 'existing').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+
+    editorIn(document).value = 'changed';
+    editorIn(document).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await flush();
+
+    expect(bannerText(document)).toBe('제목이 올바르지 않습니다.');
+    expect(document.querySelector('.todo-edit')).toBeNull();
+    expect(listTitles(document)).toEqual(['existing']);
+  });
+
+  it('a network failure (fetch rejects) shows a connection message and re-fetches the list', async () => {
+    const { document, server } = await mountApp([existing]);
+    server.failNext('PATCH', 'network');
+
+    itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.click();
+    await flush();
+
+    expect(bannerShown(document)).toBe(true);
+    expect(bannerText(document)).toBe(NETWORK_MESSAGE);
+    expect(server.requests.at(-1)?.method).toBe('GET');
+    expect(listTitles(document)).toEqual(['existing']);
+  });
+
+  it('when the re-fetch also fails, the banner shows that error and the local list stays', async () => {
+    const { document, server } = await mountApp([existing]);
+    server.failNext('PATCH', {
+      status: 500,
+      code: 'INTERNAL_ERROR',
+      message: '서버 오류가 발생했습니다.',
+    });
+    server.failNext('GET', 'network');
+
+    itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.click();
+    await flush();
+
+    expect(bannerText(document)).toBe(NETWORK_MESSAGE);
+    expect(listTitles(document)).toEqual(['existing']);
+  });
+
+  it('a failed first load shows the banner and does not throw', async () => {
+    const { document } = await mountApp([existing], (server) => {
+      server.failNext('GET', {
+        status: 500,
+        code: 'INTERNAL_ERROR',
+        message: '서버 오류가 발생했습니다.',
+      });
+    });
+
+    expect(bannerShown(document)).toBe(true);
+    expect(bannerText(document)).toBe('서버 오류가 발생했습니다.');
+    expect(listTitles(document)).toEqual([]);
+  });
+
+  it('the banner clears on the next successful action', async () => {
+    const { document, server } = await mountApp([existing]);
+    server.failNext('POST', {
+      status: 400,
+      code: 'VALIDATION_ERROR',
+      message: '제목이 올바르지 않습니다.',
+    });
+    const input = document.querySelector<HTMLInputElement>('#new-title');
+    const button = document.querySelector<HTMLButtonElement>('#add-button');
+    if (!input || !button) throw new Error('#new-title or #add-button missing');
+
+    input.value = 'buy milk';
+    button.click();
+    await flush();
+    expect(bannerShown(document)).toBe(true);
+
+    input.value = 'buy milk';
+    button.click();
+    await flush();
+
+    expect(bannerShown(document)).toBe(false);
+    expect(bannerText(document)).toBe('');
+    expect(listTitles(document)).toEqual(['existing', 'buy milk']);
   });
 });

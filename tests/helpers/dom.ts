@@ -18,10 +18,18 @@ export type Todo = {
 
 export type RecordedRequest = { method: string; url: string; body: unknown };
 
+/**
+ * What a queued failure does to the next request with a matching method: answer with the
+ * spec 01 error envelope, or reject the fetch the way a dropped network connection does.
+ */
+export type FailureOutcome = { status: number; code: string; message: string } | 'network';
+
 export type FakeServer = {
   todos: Todo[];
   requests: RecordedRequest[];
   fetch: typeof fetch;
+  /** Queues a failure for the next request whose method matches. Failures run in queue order. */
+  failNext(method: string, outcome: FailureOutcome): void;
 };
 
 // happy-dom replaces import.meta.url with a non-file URL, so resolve from the cwd.
@@ -45,10 +53,14 @@ function json(body: unknown, status = 200): Response {
  * JSON 404 envelope, so a wrong URL from the UI shows up as an error, not as silence.
  */
 export function createFakeServer(seed: Todo[] = []): FakeServer {
+  const failures: { method: string; outcome: FailureOutcome }[] = [];
   const server: FakeServer = {
     todos: seed.map((todo) => ({ ...todo })),
     requests: [],
     fetch: undefined as unknown as typeof fetch,
+    failNext(method, outcome) {
+      failures.push({ method, outcome });
+    },
   };
   let counter = 0;
 
@@ -57,6 +69,16 @@ export function createFakeServer(seed: Todo[] = []): FakeServer {
     const url = new URL(String(input), 'http://fake.local');
     const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
     server.requests.push({ method, url: url.pathname + url.search, body });
+
+    const queued = failures.findIndex((failure) => failure.method === method);
+    const failure = queued === -1 ? undefined : failures.splice(queued, 1)[0];
+    if (failure) {
+      if (failure.outcome === 'network') {
+        throw new TypeError('fetch failed');
+      }
+      const { code, message, status } = failure.outcome;
+      return json({ error: { code, message } }, status);
+    }
 
     if (url.pathname === '/api/todos' && method === 'GET') {
       const filter = url.searchParams.get('filter') ?? 'all';
@@ -117,11 +139,13 @@ export function loadIndexBody(): void {
 
 /**
  * Mounts a fresh app on the index.html body against a fake server seeded with `seed`.
- * Resolves after the initial list has rendered.
+ * `beforeStart` runs before startApp, so a test can queue a failure for the first load.
+ * Resolves after the initial list has rendered (or the initial load has failed).
  */
-export async function mountApp(seed: Todo[] = []) {
+export async function mountApp(seed: Todo[] = [], beforeStart?: (server: FakeServer) => void) {
   loadIndexBody();
   const server = createFakeServer(seed);
+  beforeStart?.(server);
   await startApp({ document, window, api: createApi(server.fetch) });
   return { document, server };
 }

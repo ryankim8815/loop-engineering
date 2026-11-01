@@ -3,6 +3,7 @@
 // with a DOM harness and a fake fetch. The pure rules (title validation, filtering) come
 // from state.js. Each action re-renders the whole list from the in-memory copy of server state.
 
+import { ApiError } from './api.js';
 import {
   countRemaining,
   filterTodos,
@@ -16,6 +17,19 @@ import {
  * @typedef {import('./state.js').Filter} Filter
  * @typedef {ReturnType<typeof import('./api.js').createApi>} Api
  */
+
+const NETWORK_ERROR_MESSAGE = '서버에 연결할 수 없습니다. 연결을 확인해 주세요.';
+
+/**
+ * The message for the error banner. An ApiError carries the spec 01 envelope message.
+ * Anything else is a failed fetch (network down), since the API client does not wrap it.
+ *
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorMessage(error) {
+  return error instanceof ApiError ? error.message : NETWORK_ERROR_MESSAGE;
+}
 
 /**
  * @param {{ document: Document, window: Window, api: Api }} deps
@@ -31,9 +45,47 @@ export function startApp({ document, window, api }) {
   const filterLinks = /** @type {HTMLAnchorElement[]} */ ([
     ...document.querySelectorAll('.filters a'),
   ]);
+  const banner = /** @type {HTMLElement} */ (document.getElementById('error-banner'));
 
   /** @type {Todo[]} */
   let todos = [];
+
+  function showError(message) {
+    banner.textContent = message;
+    banner.hidden = false;
+  }
+
+  function clearError() {
+    banner.textContent = '';
+    banner.hidden = true;
+  }
+
+  // Every API action goes through here (AC-UI-8). Local state changes only after the server
+  // accepted the request. On failure the list is re-rendered from local state, which undoes
+  // an optimistic checkbox flip, then the message is shown and the list is re-fetched, so the
+  // DOM matches the server again. The returned promise never rejects, so no call site leaks an
+  // unhandled rejection.
+  async function perform(action) {
+    try {
+      await action();
+      clearError();
+    } catch (error) {
+      render();
+      showError(errorMessage(error));
+      await resync();
+    }
+  }
+
+  async function resync() {
+    try {
+      todos = await api.list('all');
+      render();
+    } catch (error) {
+      // The re-fetch itself failed (for example, the server is down). Keep the local state
+      // and report the new error. Do not retry, so a dead server does not cause a loop.
+      showError(errorMessage(error));
+    }
+  }
   // The full list is kept in memory and filtered locally, so switching filters never
   // needs a request. The initial filter comes from the URL hash (AC-UI-6).
   /** @type {Filter} */
@@ -143,9 +195,11 @@ export function startApp({ document, window, api }) {
         render();
         return;
       }
-      const updated = await api.update(todo.id, { title: result.value });
-      todos = todos.map((t) => (t.id === updated.id ? updated : t));
-      render();
+      await perform(async () => {
+        const updated = await api.update(todo.id, { title: result.value });
+        todos = todos.map((t) => (t.id === updated.id ? updated : t));
+        render();
+      });
     }
 
     editor.addEventListener('keydown', (event) => {
@@ -168,22 +222,28 @@ export function startApp({ document, window, api }) {
 
   // Waits for the server before changing local state, so the list always mirrors what
   // the server accepted. Local state is replaced by the server's copy (its updatedAt).
-  async function setCompleted(id, completed) {
-    const updated = await api.update(id, { completed });
-    todos = todos.map((todo) => (todo.id === updated.id ? updated : todo));
-    render();
+  function setCompleted(id, completed) {
+    return perform(async () => {
+      const updated = await api.update(id, { completed });
+      todos = todos.map((todo) => (todo.id === updated.id ? updated : todo));
+      render();
+    });
   }
 
-  async function removeTodo(id) {
-    await api.remove(id);
-    todos = todos.filter((todo) => todo.id !== id);
-    render();
+  function removeTodo(id) {
+    return perform(async () => {
+      await api.remove(id);
+      todos = todos.filter((todo) => todo.id !== id);
+      render();
+    });
   }
 
-  async function clearCompleted() {
-    await api.clearCompleted();
-    todos = todos.filter((todo) => !todo.completed);
-    render();
+  function clearCompleted() {
+    return perform(async () => {
+      await api.clearCompleted();
+      todos = todos.filter((todo) => !todo.completed);
+      render();
+    });
   }
 
   async function submit() {
@@ -192,11 +252,14 @@ export function startApp({ document, window, api }) {
       hint.textContent = result.message;
       return;
     }
-    const created = await api.create(result.value);
-    todos = [...todos, created];
-    input.value = '';
-    hint.textContent = '';
-    render();
+    // On failure the typed title stays in the input, so the user can retry.
+    await perform(async () => {
+      const created = await api.create(result.value);
+      todos = [...todos, created];
+      input.value = '';
+      hint.textContent = '';
+      render();
+    });
   }
 
   input.addEventListener('keydown', (event) => {
@@ -228,8 +291,14 @@ export function startApp({ document, window, api }) {
   // Back/forward and manually edited hashes also change the filter.
   window.addEventListener('hashchange', applyHash);
 
-  return api.list('all').then((loaded) => {
-    todos = loaded;
-    render();
-  });
+  // A failed first load shows the banner and leaves the list empty. It is not retried here.
+  return api.list('all').then(
+    (loaded) => {
+      todos = loaded;
+      render();
+    },
+    (error) => {
+      showError(errorMessage(error));
+    },
+  );
 }
