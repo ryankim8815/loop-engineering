@@ -113,7 +113,9 @@ while :; do
   fi
   failures=0
 
-  if jq -Rr 'fromjson? | select(.type == "result") | .result // ""' "$log" | grep -qF "$COMPLETE_TOKEN"; then
+  # The token must be a whole line: mentioning it inside a sentence is not completion.
+  if jq -Rr 'fromjson? | select(.type == "result") | .result // ""' "$log" \
+      | grep -qxE "[[:space:]]*${COMPLETE_TOKEN}[[:space:]]*"; then
     echo; echo "✅ Ralph reported COMPLETE"; break
   fi
 
