@@ -33,18 +33,6 @@ Conventions for every item:
 
 ### Foundation
 
-- [ ] **5. Validation module.** `src/validation.ts` (pure functions, throw `AppError` VALIDATION_ERROR):
-      - `parseTitle(raw)`: must be a string → trim → 1–200 **code points** (`[...s].length`)
-      - `parseCreateBody(body)`: a plain object with exactly `title`; any other key → error
-      - `parsePatchBody(body)`: optional `title` / `completed` (boolean); unknown key → error; `{}` → error
-      - `parseFilter(query)`: `filter` ∈ `all|active|completed`, default `all`; other query keys ignored
-      - `parseBulkDeleteQuery(query)`: `completed` must be exactly `'true'`, else error
-      - `isUuid(id)`: used by routes to turn non-UUID ids into 404
-      Unit tests (`tests/validation.test.ts`): `''`, `'   '`, 200 chars ok, 201 chars rejected, 200 emoji ok,
-      201 emoji rejected, non-string title, unknown field, non-boolean `completed`, `{}` patch, non-object
-      body (array, `null`), bad `filter`, unknown query key ignored, bulk-delete query variants.
-      _Supports AC-API-2, 3, 9, 10, 11._
-
 ### REST API
 
 - [ ] **6. `POST /api/todos` + `GET /api/todos?filter=`.** `src/routes/todos.ts`, registered in
@@ -198,6 +186,10 @@ answered in specs 01/02. See "Current state".
   `buildApp({ dbPath })` decorates `app.todos` and closes the DB in an `onClose` hook; `dbPath` falls back
   to `DB_PATH`, then `data/todos.db`. Tests: `tests/db.test.ts`, `tests/todo-repository.test.ts` (frozen
   clock via `vi.useFakeTimers({ toFake: ['Date'] })`). `npm run check` is green (35 tests).
+- **5. Validation module.** `src/validation.ts`: `parseTitle`, `parseCreateBody`, `parsePatchBody`,
+  `parseFilter`, `parseBulkDeleteQuery`, `isUuid`. Reuses `TodoFilter` from `todo-repository.ts`. Pure
+  functions, so no DB or HTTP needed. Unit tests in `tests/validation.test.ts` (AC-API-2, 3, 9, 10, 11
+  at the unit level). The route-level acceptance is covered in items 6–8. `npm run check` is green (67 tests).
 - **3. Central error handling.** `src/errors.ts`: `AppError`, `validationError`, `notFound`,
   `errorEnvelope`, `toErrorResponse` (the single mapping to the envelope). `src/app.ts` wires
   `setErrorHandler` (AppError → own status; Fastify body/media-type/validation errors → 400
