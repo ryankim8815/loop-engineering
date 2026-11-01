@@ -33,10 +33,6 @@ Conventions for every item:
 
 ### Foundation
 
-- [ ] **1. Dependencies.** `npm install fastify@^5 @fastify/static` (a Fastify-5-compatible major) and
-      `npm install -D happy-dom`. These are the only additions allowed by 03. `npm run check` must still pass.
-      _Enables everything; spec 03 "고정된 스택"._
-
 - [ ] **2. App factory + server entry + health.** `src/app.ts` exports
       `buildApp(options?: { dbPath?: string; logger?: boolean }): FastifyInstance` (sync or async; pick
       one and use it the same way in every test). `dbPath` defaults to `process.env.DB_PATH ?? './data/todos.db'`.
@@ -215,11 +211,17 @@ Conventions for every item:
 
 ## Open questions
 
-_None open._ The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser
-navigations) are now answered in specs 01/02. See "Current state".
+- `npm install` reported 3 moderate npm audit advisories. The audit command was blocked in this iteration, so
+  the affected package is unknown. Run `npm audit --omit=dev` (runtime deps) and `npm audit` (all) to triage.
+  Only fix them if the fix is non-breaking and `npm run check` stays green.
+
+The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
+answered in specs 01/02. See "Current state".
 
 ## Done
 
 - Ralph loop environment, toolchain and smoke test (`tests/toolchain.smoke.test.ts`), commit `6683f7f`.
 - Spec clarifications (empty PATCH, query params, bulk-delete guard, non-UUID ids, code-point titles,
   global error envelope, happy-dom), commit `bc74c4b` (human-owned).
+- **1. Dependencies.** Added runtime `fastify@^5` and `@fastify/static` (resolved to 5.x and 10.x), dev
+  `happy-dom`. These are the only additions 03 allows. `npm run check` is green (3 existing tests pass).
