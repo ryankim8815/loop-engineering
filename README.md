@@ -242,6 +242,7 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 | 기능 | 동작 |
 | --- | --- |
 | 모드 | `plan`(기본 1회) / `build`(기본 10회, `0`=무제한) |
+| 모드별 모델 | plan은 메인·서브 모두 Opus(판단 품질 우선), build는 메인·서브 모두 Haiku(PoC 비용 최소화) |
 | 새 컨텍스트 | 매 반복마다 `claude -p --output-format stream-json --verbose`를 새로 실행 |
 | 권한 | 기본 `--permission-mode dontAsk` → `.claude/settings.json` 허용 목록 밖의 도구는 **묻지 않고 거부** |
 | 실시간 로그 | `scripts/pretty.jq`로 💬 메시지 · 🔧 도구 호출 · 🏁 반복 요약(턴 수·시간·비용) 출력 |
@@ -257,7 +258,8 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `RALPH_MODEL` | `opus` | 모델 별칭 또는 전체 이름 |
+| `RALPH_MODEL` | plan=`opus`, build=`haiku` | 메인 에이전트 모델 (별칭 또는 전체 이름). `--model`로 전달 |
+| `RALPH_SUBAGENT_MODEL` | 메인 에이전트와 동일 | 서브에이전트 모델. `CLAUDE_CODE_SUBAGENT_MODEL` 환경 변수로 전달 |
 | `RALPH_BUDGET_USD` | (없음) | 반복당 지출 상한 (`--max-budget-usd`) |
 | `RALPH_MAX_NO_PROGRESS` | `3` | 서킷 브레이커 임계값 |
 | `RALPH_YOLO` | `0` | `1`이면 `--dangerously-skip-permissions` — **격리된 컨테이너에서만** |
@@ -416,7 +418,7 @@ PoC 측정의 정확도를 위해, 전역 설정 없이 돌린 결과와 비교�
 
 **권장 실험**
 
-- 같은 스펙으로 모델을 바꿔 비교 (`RALPH_MODEL=sonnet` vs `opus`)
+- 같은 스펙으로 build 모델을 바꿔 비교 (기본 `haiku` vs `RALPH_MODEL=sonnet ./loop.sh build` vs `RALPH_MODEL=opus ./loop.sh build`)
 - 계획 없이 build만 돌렸을 때와 비교
 - 스펙에 기능을 하나 추가하고 `plan → build`로 증분 개발이 되는지 확인
 

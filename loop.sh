@@ -5,7 +5,8 @@
 #   ./loop.sh build [N]   building mode: one plan item per iteration          (default N=10, 0 = unlimited)
 #
 # Environment:
-#   RALPH_MODEL=opus            model alias or full model name
+#   RALPH_MODEL=...             main agent model (default: plan=opus, build=haiku)
+#   RALPH_SUBAGENT_MODEL=...    subagent model (default: same as the main agent)
 #   RALPH_YOLO=1                use --dangerously-skip-permissions (isolated sandbox/container only)
 #   RALPH_BUDGET_USD=2          per-iteration spend cap (--max-budget-usd)
 #   RALPH_MAX_NO_PROGRESS=3     stop after N build iterations in a row without a new commit
@@ -18,12 +19,13 @@ cd "$(dirname "$0")"
 
 MODE="${1:-build}"
 case "$MODE" in
-  plan)  PROMPT_FILE=PROMPT_plan.md;  MAX_ITERATIONS="${2:-1}" ;;
-  build) PROMPT_FILE=PROMPT_build.md; MAX_ITERATIONS="${2:-10}" ;;
+  plan)  PROMPT_FILE=PROMPT_plan.md;  MAX_ITERATIONS="${2:-1}";  DEFAULT_MODEL=opus ;;
+  build) PROMPT_FILE=PROMPT_build.md; MAX_ITERATIONS="${2:-10}"; DEFAULT_MODEL=haiku ;;
   *) echo "usage: $0 [plan|build] [max_iterations]" >&2; exit 64 ;;
 esac
 
-MODEL="${RALPH_MODEL:-opus}"
+MODEL="${RALPH_MODEL:-$DEFAULT_MODEL}"
+SUBAGENT_MODEL="${RALPH_SUBAGENT_MODEL:-$MODEL}"
 MAX_NO_PROGRESS="${RALPH_MAX_NO_PROGRESS:-3}"
 LOG_DIR=.ralph/logs
 STOP_FILE=.ralph/STOP
@@ -73,6 +75,7 @@ echo "──────── Ralph loop ────────"
 echo "mode:        $MODE ($PROMPT_FILE)"
 echo "max:         $([[ $MAX_ITERATIONS == 0 ]] && echo unlimited || echo "$MAX_ITERATIONS") iterations"
 echo "model:       $MODEL"
+echo "subagent:    $SUBAGENT_MODEL"
 echo "permissions: $PERMISSIONS"
 echo "branch:      $BRANCH"
 echo "stop:        touch $STOP_FILE  (or Ctrl+C)"
@@ -94,7 +97,7 @@ while :; do
   echo "════════ $MODE iteration $iteration — $(date '+%H:%M:%S') ════════"
 
   set +e
-  claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" | tee "$log" | jq -Rrj --unbuffered -f scripts/pretty.jq
+  CLAUDE_CODE_SUBAGENT_MODEL="$SUBAGENT_MODEL" claude "${CLAUDE_ARGS[@]}" < "$PROMPT_FILE" | tee "$log" | jq -Rrj --unbuffered -f scripts/pretty.jq
   status=${PIPESTATUS[0]}
   set -e
 
