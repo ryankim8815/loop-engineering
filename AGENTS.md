@@ -21,6 +21,8 @@ Keep this file short and operational (how to build, run and test). Progress belo
 - `src/app.ts` exports `buildApp()`; tests use `app.inject()` with `DB_PATH=':memory:'`.
 - Persistence uses built-in `node:sqlite` (`DatabaseSync`).
 - `tests/toolchain.smoke.test.ts` verifies the environment itself — keep it.
+- DOM tests (`// @vitest-environment happy-dom`) cannot use `import.meta.url` (it is not a file URL there). Resolve
+  files from `process.cwd()` instead, as `tests/helpers/dom.ts` does.
 
 ## Permission Limits (headless `dontAsk` mode)
 

@@ -37,19 +37,6 @@ Conventions for every item:
 
 ### Web UI
 
-- [ ] **13a. DOM harness + UI controller: render and add.** `public/app.js` exports
-      `startApp({ document, window, api })` (no side effects on import); `public/main.js` is a short
-      bootstrap that calls it with the real globals and `createApi()`. Render from server state using `state.js`.
-      Test harness `tests/helpers/dom.ts`: load the `<body>` of `public/index.html` into the happy-dom
-      document, install a stateful fake `fetch` (in-memory todos, records every request), call `startApp`,
-      and expose a `flush()` helper that awaits pending promises.
-      Tests (`tests/ui.dom.test.ts`, `// @vitest-environment happy-dom`):
-      - AC-UI-4: type + Enter → one `POST` with the trimmed title, the new item is the last `<li>`, the
-        input is cleared; empty/whitespace + Enter → no request and the hint text is visible. Clicking
-        "추가" behaves the same.
-      Also in `tests/ui.static.test.ts`:
-      - AC-UI-2: `GET /main.js`, `/app.js`, `/state.js`, `/api.js` → `text/javascript` or `application/javascript`
-
 - [ ] **13b. Toggle, delete, remaining counter.** Each item has a labelled checkbox and an `aria-label`ed
       delete button; completed items get a `completed` class (strikethrough in CSS); `#remaining-count`
       is computed with `countRemaining`. Tests (DOM):
@@ -161,6 +148,13 @@ answered in specs 01/02. See "Current state".
   `<script type="module" src="/main.js">` points at a file that arrives in 13a, so a browser currently 404s on it.
   Tests in `tests/ui.static.test.ts`: AC-UI-1 (`/` HTML, `/styles.css` text/css, unknown static path → JSON 404,
   `/api/*` not shadowed). AC-UI-2 stays open for 13a. `npm run check` is green (105 tests).
+- **13a. DOM harness + UI controller: render and add.** `public/app.js` `startApp({ document, api })` loads
+  the list on start and renders `<li>` items. Enter (not during IME composition) and 추가 both call `submit`,
+  which trims the title, sends one POST, appends the item, and clears the input. Invalid input sets the hint
+  and sends nothing. `public/main.js` is the only side-effecting bootstrap. `startApp` takes no `window` yet
+  (item 14 adds it for `location.hash`). Harness `tests/helpers/dom.ts` (`mountApp`, stateful fake API that
+  records requests, `flush`). Tests: AC-UI-4 in `tests/ui.dom.test.ts`, AC-UI-2 in `tests/ui.static.test.ts`.
+  Known gap, owned by item 16: a failed add rejects unhandled. `npm run check` is green (144 tests).
 - **12. API client module.** `public/api.js` `createApi(fetchImpl)`: `list`, `create`, `update`, `remove`,
   `clearCompleted`. `Content-Type` is sent only with a body (DELETE stays bodyless, since Fastify rejects an
   empty JSON body). Non-2xx → `ApiError` (`code`, `message`, `status`) from the spec 01 envelope; a non-JSON or

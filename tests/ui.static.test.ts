@@ -40,6 +40,17 @@ describe('static UI', () => {
     expect(res.headers['content-type']).toMatch(/text\/css/);
   });
 
+  it.each(['/main.js', '/app.js', '/state.js', '/api.js'])(
+    'AC-UI-2: GET %s is served as a JavaScript module',
+    async (url) => {
+      app = buildApp({ dbPath: ':memory:' });
+      const res = await app.inject({ method: 'GET', url });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toMatch(/text\/javascript|application\/javascript/);
+    },
+  );
+
   it('AC-UI-1: an unknown static path returns the JSON 404 envelope, not HTML', async () => {
     app = buildApp({ dbPath: ':memory:' });
     const res = await app.inject({
