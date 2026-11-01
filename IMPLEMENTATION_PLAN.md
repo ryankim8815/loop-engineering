@@ -37,14 +37,6 @@ Conventions for every item:
 
 ### Web UI
 
-- [ ] **11. Pure UI state module.** `public/state.js` (ES module, no DOM access, JSDoc types):
-      `filterTodos(todos, filter)`, `countRemaining(todos)`, `validateTitle(raw)` →
-      `{ ok: true, value } | { ok: false, message }` (trim, 1–200 code points, the same rule as the server),
-      `parseFilterFromHash(hash)` (`#/active` → `active`, `#/completed` → `completed`, else `all`),
-      `resolveEdit(original, raw)` → `{ action: 'save', value } | { action: 'cancel' }` (empty/whitespace
-      or unchanged → cancel). Tests in `tests/ui.state.test.ts` import `../public/state.js`.
-      - AC-UI-3 (incl. 200/201-emoji parity with AC-API-11)
-
 - [ ] **12. API client module.** `public/api.js`: `createApi(fetchImpl = globalThis.fetch)` returning
       `list(filter)`, `create(title)`, `update(id, patch)`, `remove(id)`, `clearCompleted()`.
       - Send `Content-Type: application/json` **only** when there is a body (POST/PATCH). DELETE
@@ -85,6 +77,9 @@ Conventions for every item:
       `PATCH {title}` and the new title is shown. Esc, Enter with an empty/whitespace value, and **blur**
       (spec 02) all cancel: no request, original title restored (use `resolveEdit`). Make sure the
       Enter/Esc paths don't also fire a second action from the blur that follows the editor's removal.
+      `resolveEdit` does not check the 200-code-point limit (it only trims and compares). Over-length
+      input therefore sends a PATCH and gets the server's 400, which item 16 shows in the banner. Decide
+      whether to validate with `validateTitle` before the PATCH instead; the spec has no answer yet.
       Keyboard access: an `aria-label`ed edit button (or Enter/F2 on a focusable title) opens the same editor.
       Tests (DOM): AC-UI-7. Double-click shows the editor; Enter sends one PATCH; Esc, an empty value and
       blur each send nothing and restore the original title.
@@ -124,6 +119,10 @@ answered in specs 01/02. See "Current state".
 - Ralph loop environment, toolchain and smoke test (`tests/toolchain.smoke.test.ts`), commit `6683f7f`.
 - Spec clarifications (empty PATCH, query params, bulk-delete guard, non-UUID ids, code-point titles,
   global error envelope, happy-dom), commit `bc74c4b` (human-owned).
+- **11. Pure UI state module.** `public/state.js`: `filterTodos`, `countRemaining`, `validateTitle` (trim,
+  1–200 code points, mirrors `parseTitle`), `parseFilterFromHash`, `resolveEdit` (empty or unchanged →
+  cancel). No DOM access. Tests in `tests/ui.state.test.ts` cover AC-UI-3, including a parity check
+  against `src/validation.ts` (200/201 emoji, same results). `npm run check` is green (124 tests).
 - **1. Dependencies.** Added runtime `fastify@^5` and `@fastify/static` (resolved to 5.x and 10.x), dev
   `happy-dom`. These are the only additions 03 allows. `npm run check` is green (3 existing tests pass).
 - **2. App factory + health.** `src/app.ts` `buildApp({ logger? })` (sync, returns a Fastify instance),
