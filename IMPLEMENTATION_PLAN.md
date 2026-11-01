@@ -37,15 +37,6 @@ Conventions for every item:
 
 ### Web UI
 
-- [ ] **12. API client module.** `public/api.js`: `createApi(fetchImpl = globalThis.fetch)` returning
-      `list(filter)`, `create(title)`, `update(id, patch)`, `remove(id)`, `clearCompleted()`.
-      - Send `Content-Type: application/json` **only** when there is a body (POST/PATCH). DELETE
-        requests must not send it, or Fastify rejects the empty JSON body with 400.
-      - Non-2xx → throw `ApiError` carrying `code`/`message` from the envelope (fallback message when the
-        body isn't JSON). Handle 204 without parsing.
-      Unit tests with a stub `fetch` (`tests/ui.api.test.ts`) cover the URL, method, headers (including
-      no Content-Type on DELETE), body and error parsing. _Supports 02 "API 오류" / AC-UI-8._
-
 - [ ] **13a. DOM harness + UI controller: render and add.** `public/app.js` exports
       `startApp({ document, window, api })` (no side effects on import); `public/main.js` is a short
       bootstrap that calls it with the real globals and `createApi()`. Render from server state using `state.js`.
@@ -170,3 +161,9 @@ answered in specs 01/02. See "Current state".
   `<script type="module" src="/main.js">` points at a file that arrives in 13a, so a browser currently 404s on it.
   Tests in `tests/ui.static.test.ts`: AC-UI-1 (`/` HTML, `/styles.css` text/css, unknown static path → JSON 404,
   `/api/*` not shadowed). AC-UI-2 stays open for 13a. `npm run check` is green (105 tests).
+- **12. API client module.** `public/api.js` `createApi(fetchImpl)`: `list`, `create`, `update`, `remove`,
+  `clearCompleted`. `Content-Type` is sent only with a body (DELETE stays bodyless, since Fastify rejects an
+  empty JSON body). Non-2xx → `ApiError` (`code`, `message`, `status`) from the spec 01 envelope; a non-JSON or
+  envelope-less body falls back to `HTTP_ERROR` with a generic message. 204 is not parsed. Network failures
+  reject unchanged. Tests in `tests/ui.api.test.ts` (stub fetch). Supports AC-UI-8 (the banner itself is item 16).
+  `npm run check` is green (135 tests).
