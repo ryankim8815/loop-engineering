@@ -1,14 +1,33 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import { openDatabase } from './db.ts';
 import { errorEnvelope, NOT_FOUND_MESSAGE, toErrorResponse } from './errors.ts';
+import { TodoRepository } from './todo-repository.ts';
 
 export interface BuildAppOptions {
   logger?: boolean;
+  // SQLite file path, or ':memory:'. Falls back to DB_PATH, then the default file.
+  dbPath?: string;
+}
+
+const DEFAULT_DB_PATH = 'data/todos.db';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    todos: TodoRepository;
+  }
 }
 
 // App factory shared by the server entry point and the tests. Tests call
 // buildApp() and drive it with app.inject(), so no real port is bound.
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
+
+  const db = openDatabase(options.dbPath ?? process.env.DB_PATH ?? DEFAULT_DB_PATH);
+  app.decorate('todos', new TodoRepository(db));
+  // Closing the app closes its database handle so the file is released.
+  app.addHook('onClose', async () => {
+    db.close();
+  });
 
   // Fastify ships a text/plain body parser by default. Spec 01 accepts only
   // application/json bodies, so drop it; other types then hit the 415 path,

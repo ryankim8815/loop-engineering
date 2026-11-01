@@ -33,20 +33,6 @@ Conventions for every item:
 
 ### Foundation
 
-- [ ] **4. Persistence layer.** `src/db.ts` `openDatabase(path)`: `DatabaseSync`, creates the parent dir
-      when path ≠ `:memory:`, `CREATE TABLE IF NOT EXISTS todos (id TEXT PRIMARY KEY, title TEXT NOT NULL,
-      completed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`.
-      `src/todo-repository.ts`: `list(filter)`, `get(id)`, `create(title)`, `update(id, patch)`,
-      `remove(id): boolean`, `removeCompleted(): number`.
-      - Rows map to the API shape (`completed` boolean, `createdAt`/`updatedAt` ISO UTC strings).
-      - Order by `created_at ASC, rowid ASC` (tie-break for same-ms inserts).
-      - Ids from `crypto.randomUUID()`.
-      - On update, `updatedAt` must be **strictly greater** than the previous value; if `now <= previous`,
-        use `previous + 1 ms`.
-      `buildApp` opens the DB and closes it in an `onClose` hook. Unit tests against `:memory:`
-      (`tests/todo-repository.test.ts`), including same-ms ordering and the strict `updatedAt` bump.
-      _Spec 01 데이터 모델 / 정렬 / 영속성. Foundation for AC-API-1…11._
-
 - [ ] **5. Validation module.** `src/validation.ts` (pure functions, throw `AppError` VALIDATION_ERROR):
       - `parseTitle(raw)`: must be a string → trim → 1–200 **code points** (`[...s].length`)
       - `parseCreateBody(body)`: a plain object with exactly `title`; any other key → error
@@ -206,6 +192,12 @@ answered in specs 01/02. See "Current state".
   item 4 adds it together with the DB wiring. `npm run check` is green (4 tests).
   Not verified: a real `node src/server.ts` run and curl. Left for item 18's manual smoke test.
   Committed in item 3's commit (these files were still untracked before).
+- **4. Persistence layer.** `src/db.ts` `openDatabase(path)` (creates parent dir unless `:memory:`, schema
+  via `CREATE TABLE IF NOT EXISTS`). `src/todo-repository.ts` `TodoRepository`: `list(filter)`, `get`,
+  `create`, `update` (strict `updatedAt` bump via `nextUpdatedAt`), `remove`, `removeCompleted`.
+  `buildApp({ dbPath })` decorates `app.todos` and closes the DB in an `onClose` hook; `dbPath` falls back
+  to `DB_PATH`, then `data/todos.db`. Tests: `tests/db.test.ts`, `tests/todo-repository.test.ts` (frozen
+  clock via `vi.useFakeTimers({ toFake: ['Date'] })`). `npm run check` is green (35 tests).
 - **3. Central error handling.** `src/errors.ts`: `AppError`, `validationError`, `notFound`,
   `errorEnvelope`, `toErrorResponse` (the single mapping to the envelope). `src/app.ts` wires
   `setErrorHandler` (AppError → own status; Fastify body/media-type/validation errors → 400
