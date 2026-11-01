@@ -37,13 +37,6 @@ Conventions for every item:
 
 ### Web UI
 
-- [ ] **17. Styles, accessibility & responsive layout.** `public/styles.css`: strikethrough for
-      `.completed`, a visible selected filter, a visible `:focus-visible`, `box-sizing: border-box`,
-      `max-width: 100%`, `overflow-wrap: anywhere` for long titles so 360px has no horizontal scroll.
-      Test (DOM suite): every `<input>`/`<button>` in `index.html` **and** in a rendered item (including the
-      edit input) has a `<label>` or `aria-label`; all controls are native focusable elements (no
-      `tabindex="-1"`); the viewport meta is present. _Spec 02 접근성·반응형._
-
 ### Wrap-up
 
 - [ ] **18. Coverage audit & DoD.** `grep -rn "AC-API-\|AC-UI-" tests/` shows all 20 ids (AC-API-1…12,
@@ -65,6 +58,14 @@ The three former questions (blur behaviour, unsupported Content-Type, JSON 404 f
 answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **17. Styles, accessibility & responsive layout.** `public/styles.css`: completed-item strikethrough now targets
+  `.todo-list li.completed .todo-title`. It targeted `label`, which the item never renders, so completed titles were
+  never struck through (found by the new test). Selected filter, `:focus-visible`, `border-box`, `max-width` and
+  `overflow-wrap: anywhere` are asserted. Tests in `tests/ui.a11y.dom.test.ts` (10 cases, no AC id in spec):
+  every control in `index.html` and in a rendered item (plus the open edit input) has a label or `aria-label`, no
+  `tabindex="-1"`, the viewport meta exists, and CSS rules match the rendered elements. 360px no-scroll is verified
+  only as the CSS properties that guarantee it (happy-dom has no layout). `npm run check` is green (180 tests).
 
 - **16. API error banner + resync.** `public/app.js` `perform(action)` wraps every API call (add, toggle, edit,
   delete, clear, and the initial load). Success clears `#error-banner`. Failure re-renders from local state (which

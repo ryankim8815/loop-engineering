@@ -79,15 +79,15 @@ h1 {
   max-width: 100%;
 }
 
-.todo-list li.completed label {
-  text-decoration: line-through;
-  color: #6e6e73;
-}
-
 .todo-title {
   flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.todo-list li.completed .todo-title {
+  text-decoration: line-through;
+  color: #6e6e73;
 }
 
 .footer {
