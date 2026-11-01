@@ -37,14 +37,6 @@ Conventions for every item:
 
 ### Web UI
 
-- [ ] **14. Filters, hash routing, clear completed.** Filter clicks set `location.hash`; `hashchange`
-      and the initial hash drive the active filter; the selected link gets `aria-current="page"` (+ a CSS
-      class). "완료 항목 삭제" calls the bulk endpoint and re-renders.
-      Tests (DOM):
-      - AC-UI-6: clicking the active filter → hash `#/active` and only active items shown; setting
-        `window.location.hash = '#/completed'` before `startApp` → only completed items from the first render
-      - clear-completed sends `DELETE /api/todos?completed=true` and removes completed items
-
 - [ ] **15. Inline edit.** Double-click a title → an edit `<input>` (focused, prefilled). Enter →
       `PATCH {title}` and the new title is shown. Esc, Enter with an empty/whitespace value, and **blur**
       (spec 02) all cancel: no request, original title restored (use `resolveEdit`). Make sure the
@@ -155,6 +147,13 @@ answered in specs 01/02. See "Current state".
   `#remaining-count` shows `N개 남음` via `countRemaining`. Tests in `tests/ui.dom.test.ts`: AC-UI-5.
   Known gap, owned by item 16: a failed toggle or delete rejects unhandled, and a failed toggle leaves
   the checkbox showing the new state. `npm run check` is green (147 tests).
+- **14. Filters, hash routing, clear completed.** `startApp` takes `window` (passed from `main.js`). The full list
+  stays in memory and is filtered locally (`filterTodos`), so switching filters sends no request. Filter links
+  set `location.hash` (click is `preventDefault`ed, and the filter is also applied directly). `hashchange` and the
+  initial hash drive the filter. The selected link gets `aria-current="page"` and class `selected`. "완료 항목
+  삭제" waits for `DELETE ?completed=true`, then drops completed items. Tests in `tests/ui.dom.test.ts`: AC-UI-6
+  (click, initial hash, hashchange) and clear-completed. Known gap, owned by item 16: a failed clear rejects
+  unhandled. `npm run check` is green (151 tests).
 - **12. API client module.** `public/api.js` `createApi(fetchImpl)`: `list`, `create`, `update`, `remove`,
   `clearCompleted`. `Content-Type` is sent only with a body (DELETE stays bodyless, since Fastify rejects an
   empty JSON body). Non-2xx → `ApiError` (`code`, `message`, `status`) from the spec 01 envelope; a non-JSON or

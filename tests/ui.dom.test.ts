@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { flush, mountApp, type Todo } from './helpers/dom.ts';
 
 // DOM tests for public/app.js against public/index.html, with a fake API (see helpers/dom.ts).
@@ -169,5 +169,75 @@ describe('AC-UI-5: toggle, delete, and the remaining counter', () => {
     ]);
     expect(listTitles(document)).toEqual(['done']);
     expect(remainingText(document)).toBe('0개 남음');
+  });
+});
+
+describe('AC-UI-6: filters follow the URL hash', () => {
+  // The hash is shared window state, so each test starts from the "all" view.
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  function filterLink(document: Document, href: string): HTMLAnchorElement {
+    const link = document.querySelector<HTMLAnchorElement>(`.filters a[href="${href}"]`);
+    if (!link) throw new Error(`filter link ${href} missing`);
+    return link;
+  }
+
+  it('clicking the 진행 중 filter sets the hash to #/active and shows only active items', async () => {
+    const { document, server } = await mountApp([existing, done]);
+
+    filterLink(document, '#/active').click();
+    await flush();
+
+    expect(window.location.hash).toBe('#/active');
+    expect(listTitles(document)).toEqual(['existing']);
+    expect(filterLink(document, '#/active').getAttribute('aria-current')).toBe('page');
+    expect(filterLink(document, '#/active').classList.contains('selected')).toBe(true);
+    expect(filterLink(document, '#/').hasAttribute('aria-current')).toBe(false);
+    // Filtering is local, so switching filters sends no request.
+    expect(server.requests).toEqual([
+      { method: 'GET', url: '/api/todos?filter=all', body: undefined },
+    ]);
+  });
+
+  it('opening the page with #/completed applies the completed filter from the first render', async () => {
+    window.location.hash = '#/completed';
+    const { document } = await mountApp([existing, done]);
+
+    expect(listTitles(document)).toEqual(['done']);
+    expect(filterLink(document, '#/completed').getAttribute('aria-current')).toBe('page');
+    expect(filterLink(document, '#/').hasAttribute('aria-current')).toBe(false);
+  });
+
+  it('a hashchange (back/forward or a typed hash) updates the visible filter', async () => {
+    const { document } = await mountApp([existing, done]);
+
+    window.location.hash = '#/completed';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    expect(listTitles(document)).toEqual(['done']);
+    expect(filterLink(document, '#/completed').getAttribute('aria-current')).toBe('page');
+  });
+});
+
+describe('clear completed', () => {
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  it('sends DELETE ?completed=true, removes completed items, and updates the counter', async () => {
+    const { document, server } = await mountApp([existing, done]);
+    const button = document.querySelector<HTMLButtonElement>('#clear-completed');
+    if (!button) throw new Error('#clear-completed missing');
+
+    button.click();
+    await flush();
+
+    expect(writes(server.requests)).toEqual([
+      { method: 'DELETE', url: '/api/todos?completed=true', body: undefined },
+    ]);
+    expect(listTitles(document)).toEqual(['existing']);
+    expect(remainingText(document)).toBe('1개 남음');
   });
 });

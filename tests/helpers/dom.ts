@@ -122,6 +122,6 @@ export function loadIndexBody(): void {
 export async function mountApp(seed: Todo[] = []) {
   loadIndexBody();
   const server = createFakeServer(seed);
-  await startApp({ document, api: createApi(server.fetch) });
+  await startApp({ document, window, api: createApi(server.fetch) });
   return { document, server };
 }

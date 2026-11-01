@@ -4,4 +4,4 @@
 import { createApi } from './api.js';
 import { startApp } from './app.js';
 
-startApp({ document, api: createApi(fetch) });
+startApp({ document, window, api: createApi(fetch) });
