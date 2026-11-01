@@ -39,12 +39,14 @@ Conventions for every item:
 
 ### Wrap-up
 
-- [ ] **18. Coverage audit & DoD.** `grep -rn "AC-API-\|AC-UI-" tests/` shows all 20 ids (AC-API-1…12,
-      AC-UI-1…8) in passing tests. No `.skip`/`.todo`/`TODO` in `src`, `public`, `tests`. `npm run check`
-      is green. Manual `npm start` smoke test at http://localhost:3000 (DoD #3). Do **not** edit `README.md`
+- [ ] **18. Coverage audit & DoD.** Verified: all 20 spec AC ids (AC-API-1…12, AC-UI-1…8) appear in passing
+      tests, and the specs define no others. No `.skip`/`.todo`/`TODO` in `src`, `public`, `tests`. `npm run check`
+      is green (180 tests). **Still open:** the manual `npm start` smoke test at http://localhost:3000 (DoD #3).
+      AGENTS.md bars background servers in headless mode, so a person has to run it. Do **not** edit `README.md`
       (agent-protected); note any README drift under Open questions instead.
 
 ## Open questions
+
 
 - Inline edit over-length titles (item 15 chose the default): `resolveEdit` does not check the 200-code-point
   limit, so an over-long edit sends a PATCH and gets the server's 400. Spec 02 does not say whether the UI
