@@ -22,6 +22,14 @@ Keep this file short and operational (how to build, run and test). Progress belo
 - Persistence uses built-in `node:sqlite` (`DatabaseSync`).
 - `tests/toolchain.smoke.test.ts` verifies the environment itself — keep it.
 
+## Permission Limits (headless `dontAsk` mode)
+
+Commands outside the allowlist are denied without a prompt, and a denied commit costs a whole iteration.
+
+- Commit with `git commit -m "$(cat <<'EOF' ... EOF)"` (or a plain `-m "..."`). `git commit -F -` with a heredoc is denied.
+- Do not start servers in the background (`&`, `timeout`, `sleep`). Verify HTTP behaviour with `app.inject()` in tests.
+- Read several files with the Read tool, not a shell `for` loop (`for` loops are denied).
+
 ## Operational Notes
 
 <!-- Ralph appends short learnings here (commands, gotchas). -->
