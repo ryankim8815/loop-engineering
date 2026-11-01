@@ -32,6 +32,7 @@
 - **쿼리**: 정의되지 않은 쿼리 파라미터는 **무시**한다(본문과 다름). 정의된 파라미터의 값이 잘못되면 400.
 - **일괄 삭제**: `DELETE /api/todos`는 `completed=true`가 있을 때만 동작한다. 쿼리가 없거나 `completed`가 `true`가 아니면 400이고 아무것도 삭제하지 않는다.
 - **id**: UUID 형식이 아닌 `:id`도 "존재하지 않는 id"로 보고 404를 반환한다.
+- **Content-Type**: `POST`·`PATCH` 본문은 `application/json`만 받는다. 그 외 Content-Type은 Fastify 기본값인 415 대신 400 `VALIDATION_ERROR`로 응답한다.
 
 ## 오류 형식
 
@@ -43,12 +44,13 @@
 
 | 상황 | HTTP | `code` |
 | --- | --- | --- |
-| 본문·쿼리 검증 실패 (빈 제목, 200자 초과, 잘못된 타입, 본문의 알 수 없는 필드, 빈 `PATCH` 본문, 잘못된 `filter`, 일괄 삭제에 `completed=true` 없음, 잘못된 JSON) | 400 | `VALIDATION_ERROR` |
+| 본문·쿼리 검증 실패 (빈 제목, 200자 초과, 잘못된 타입, 본문의 알 수 없는 필드, 빈 `PATCH` 본문, 잘못된 `filter`, 일괄 삭제에 `completed=true` 없음, 잘못된 JSON, 지원하지 않는 Content-Type) | 400 | `VALIDATION_ERROR` |
 | 존재하지 않는 `id` (UUID 형식이 아닌 경우 포함) | 404 | `NOT_FOUND` |
 | 존재하지 않는 경로 (`/api` 밖의 경로 포함) | 404 | `NOT_FOUND` |
 | 그 외 서버 오류 | 500 | `INTERNAL_ERROR` (스택 트레이스 노출 금지) |
 
 이 형식은 `/api` 아래뿐 아니라 **서버의 모든 오류 응답**에 적용한다.
+브라우저로 존재하지 않는 경로를 열어도 HTML 오류 페이지를 만들지 않고 JSON 404를 그대로 반환한다.
 
 ## 영속성
 
