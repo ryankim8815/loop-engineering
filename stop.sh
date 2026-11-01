@@ -19,7 +19,7 @@ TIMEOUT="${RALPH_STOP_TIMEOUT:-1800}"
 # PIDs of loop.sh processes whose working directory is this repo (loop.sh cd's into its own directory).
 loop_pids() {
   local pid cwd
-  for pid in $(pgrep -f 'loop\.sh (plan|build)' 2>/dev/null || true); do
+  for pid in $(pgrep -f 'loop\.sh (plan|build|review)' 2>/dev/null || true); do
     cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"
     [[ "$cwd" == "$REPO_DIR" ]] && echo "$pid"
   done

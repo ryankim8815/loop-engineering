@@ -3,9 +3,10 @@
 #
 #   ./loop.sh plan  [N]   planning mode: (re)generate IMPLEMENTATION_PLAN.md  (default N=1)
 #   ./loop.sh build [N]   building mode: one plan item per iteration          (default N=10, 0 = unlimited)
+#   ./loop.sh review [N]  review mode: record confirmed defects in the plan   (default N=1)
 #
 # Environment:
-#   RALPH_MODEL=...             main agent model (default: plan=opus, build=haiku)
+#   RALPH_MODEL=...             main agent model (default: plan=opus, build=haiku, review=opus)
 #   RALPH_SUBAGENT_MODEL=...    subagent model (default: same as the main agent)
 #   RALPH_YOLO=1                use --dangerously-skip-permissions (isolated sandbox/container only)
 #   RALPH_BUDGET_USD=2          per-iteration spend cap (--max-budget-usd)
@@ -21,7 +22,8 @@ MODE="${1:-build}"
 case "$MODE" in
   plan)  PROMPT_FILE=PROMPT_plan.md;  MAX_ITERATIONS="${2:-1}";  DEFAULT_MODEL=opus ;;
   build) PROMPT_FILE=PROMPT_build.md; MAX_ITERATIONS="${2:-10}"; DEFAULT_MODEL=haiku ;;
-  *) echo "usage: $0 [plan|build] [max_iterations]" >&2; exit 64 ;;
+  review) PROMPT_FILE=PROMPT_review.md; MAX_ITERATIONS="${2:-1}"; DEFAULT_MODEL=opus ;;
+  *) echo "usage: $0 [plan|build|review] [max_iterations]" >&2; exit 64 ;;
 esac
 
 MODEL="${RALPH_MODEL:-$DEFAULT_MODEL}"
@@ -50,6 +52,14 @@ else
   CLAUDE_ARGS+=(--permission-mode dontAsk)
   PERMISSIONS="dontAsk + .claude/settings.json allowlist"
 fi
+if [[ "$MODE" == review ]]; then
+  # Review records defects; the build loop fixes them. Enforce that here instead of trusting the prompt:
+  # only IMPLEMENTATION_PLAN.md stays writable, and nothing can be committed.
+  # An Edit(path) rule covers every file-editing tool (Write included); Write(path) rules are ignored.
+  CLAUDE_ARGS+=(--disallowedTools
+    "Edit(./src/**)" "Edit(./public/**)" "Edit(./tests/**)" "Edit(./AGENTS.md)"
+    "Bash(git add *)" "Bash(git commit *)" "Bash(rm *)" "Bash(npm install *)")
+fi
 [[ -n "${RALPH_BUDGET_USD:-}" ]] && CLAUDE_ARGS+=(--max-budget-usd "$RALPH_BUDGET_USD")
 
 BRANCH="$(git branch --show-current)"
@@ -70,6 +80,10 @@ summary() {
   echo "logs:        $LOG_DIR/"
 }
 trap 'summary; exit 130' INT
+
+changed_besides_plan() {
+  git status --porcelain -- . ':(exclude)IMPLEMENTATION_PLAN.md'
+}
 
 echo "──────── Ralph loop ────────"
 echo "mode:        $MODE ($PROMPT_FILE)"
@@ -92,6 +106,7 @@ while :; do
   iteration=$((iteration + 1))
   log="$LOG_DIR/$(date +%Y%m%d-%H%M%S)-${MODE}-$(printf %03d "$iteration").jsonl"
   head_before="$(git rev-parse HEAD)"
+  others_before="$(changed_besides_plan)"
 
   echo
   echo "════════ $MODE iteration $iteration — $(date '+%H:%M:%S') ════════"
@@ -117,6 +132,15 @@ while :; do
   if jq -Rr 'fromjson? | select(.type == "result") | .result // ""' "$log" \
       | grep -qxE "[[:space:]]*${COMPLETE_TOKEN}[[:space:]]*"; then
     echo; echo "✅ Ralph reported COMPLETE"; break
+  fi
+
+  # plan and review may only write the plan; flag anything else they touched for a human to inspect.
+  if [[ "$MODE" != build ]]; then
+    others_after="$(changed_besides_plan)"
+    if [[ "$others_after" != "$others_before" || "$(git rev-parse HEAD)" != "$head_before" ]]; then
+      echo "⚠️  $MODE changed more than IMPLEMENTATION_PLAN.md — inspect with: git status; git log -1"
+      echo "$others_after"
+    fi
   fi
 
   if [[ "$MODE" == build ]]; then

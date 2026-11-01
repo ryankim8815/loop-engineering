@@ -53,12 +53,15 @@ flowchart LR
   R -- "수정 필요" --> A
   R -- "OK" --> C["③ 구현<br/>./loop.sh build<br/>항목 1개 = 반복 1회 = 커밋 1개"]
   C -- "계획이 틀어짐" --> B
-  C -- "&lt;promise&gt;COMPLETE&lt;/promise&gt;" --> D["완료"]
+  C -- "&lt;promise&gt;COMPLETE&lt;/promise&gt;" --> V["④ 리뷰 (선택)<br/>./loop.sh review<br/>확인된 결함 → 계획에 R 항목"]
+  V -- "결함 발견" --> C
+  V -- "새 결함 없음" --> D["완료"]
 ```
 
 1. **요구사항 정의 (사람)** — 무엇을 만들지 `specs/`에 적습니다. 이 저장소에는 이미 작성되어 있습니다.
 2. **계획 (`plan` 모드)** — 에이전트가 스펙과 현재 코드를 비교해 우선순위가 매겨진 체크리스트를 만듭니다. **코드는 작성하지 않습니다.**
 3. **구현 (`build` 모드)** — 매 반복마다 가장 중요한 항목 하나를 구현 → `npm run check` 통과 → 계획 갱신 → 커밋합니다.
+4. **리뷰 (`review` 모드, 선택)** — 테스트가 잡지 못한 결함(AC 밖의 스펙 규칙, 보안, 테스트 품질)을 찾아 **재현한 것만** 계획에 추가합니다. 고치는 일은 다시 build가 합니다. 방법론의 필수 단계는 아니고 이 저장소가 더한 확장입니다. 자세한 내용은 [5.5](#55-리뷰-루프)
 
 ### 한 번의 build 반복 안에서 일어나는 일
 
@@ -88,10 +91,11 @@ sequenceDiagram
 ```
 loop-engineering/
 ├── README.md                  # 이 문서
-├── loop.sh                    # ★ 랄프 루프 실행기 (plan / build 모드)
+├── loop.sh                    # ★ 랄프 루프 실행기 (plan / build / review 모드)
 ├── stop.sh                    # 그레이스풀 셧다운: 현재 반복이 끝나면 루프 종료
 ├── PROMPT_plan.md             # ★ plan 모드 프롬프트 — 계획만 세움
 ├── PROMPT_build.md            # ★ build 모드 프롬프트 — 항목 1개 구현·검증·커밋
+├── PROMPT_review.md           #   review 모드 프롬프트 — 결함을 재현해 계획에 기록 (고치지 않음)
 ├── IMPLEMENTATION_PLAN.md     # ★ 반복 간 공유되는 "기억" (현재는 비어 있음)
 ├── AGENTS.md                  # ★ 운영 가이드: 빌드·실행·테스트 방법, 학습한 주의점
 ├── CLAUDE.md                  # `@AGENTS.md` 한 줄 — Claude Code가 AGENTS.md를 자동 로드하게 함
@@ -202,6 +206,14 @@ Huntley의 플레이북 구조를 이 프로젝트에 맞게 다듬었습니다.
 - 테스트를 건너뛰거나 약화시키지 말 것, 플레이스홀더 금지, 스펙·프롬프트 수정 금지.
 - 모든 항목이 끝나고 검증되면 `<promise>COMPLETE</promise>`를 출력 → `loop.sh`가 이를 감지해 종료.
 
+**`PROMPT_review.md`의 핵심 지시** (나중에 추가한 확장 모드)
+
+- "리뷰만 하라. 쓸 수 있는 파일은 `IMPLEMENTATION_PLAN.md`뿐이다." — 고치는 일은 build 루프에 맡겨, 결함마다 회귀 테스트가 붙게 합니다.
+- 점검 영역마다 서브에이전트 1개: AC 밖의 스펙 규칙, 보안(경로 탐색·HTML 주입·SQL), 테스트 품질, 견고성.
+- **재현한 것만 기록** — 명령(`node -e`로 `app.inject()` 호출 등)과 출력을 증거로 남깁니다. 서버는 띄우지 않습니다.
+- 사람이나 실행 중인 서버가 있어야 끝나는 항목은 추가 금지 — build 루프가 영원히 끝내지 못합니다.
+- 새로 확인된 결함이 없을 때만 `<promise>COMPLETE</promise>`.
+
 ### 4.4 운영 가이드 — `AGENTS.md` + `CLAUDE.md`
 
 `AGENTS.md`에는 **빌드·실행·테스트 방법만** 짧게 적습니다. 매 반복마다 컨텍스트에 실리므로 길어지면 그만큼 비용과 품질 손해입니다.
@@ -242,8 +254,10 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 
 | 기능 | 동작 |
 | --- | --- |
-| 모드 | `plan`(기본 1회) / `build`(기본 10회, `0`=무제한) |
-| 모드별 모델 | plan은 메인·서브 모두 Opus(판단 품질 우선), build는 메인·서브 모두 Haiku(PoC 비용 최소화) |
+| 모드 | `plan`(기본 1회) / `build`(기본 10회, `0`=무제한) / `review`(기본 1회) |
+| 모드별 모델 | plan·review는 메인·서브 모두 Opus(판단 품질 우선), build는 메인·서브 모두 Haiku(PoC 비용 최소화) |
+| review 쓰기 제한 | review 모드에만 `--disallowedTools`로 `src/`·`public/`·`tests/`·`AGENTS.md` 편집과 `git add/commit`, `rm`, `npm install`을 차단. 프롬프트가 아니라 구조로 강제 |
+| 범위 이탈 경고 | plan·review 반복이 `IMPLEMENTATION_PLAN.md` 밖의 파일을 바꾸거나 커밋하면 ⚠️ 경고 |
 | 새 컨텍스트 | 매 반복마다 `claude -p --output-format stream-json --verbose`를 새로 실행 |
 | 권한 | 기본 `--permission-mode dontAsk` → `.claude/settings.json` 허용 목록 밖의 도구는 **묻지 않고 거부** |
 | 실시간 로그 | `scripts/pretty.jq`로 💬 메시지 · 🔧 도구 호출 · 🏁 반복 요약(턴 수·시간·비용) 출력 |
@@ -259,7 +273,7 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `RALPH_MODEL` | plan=`opus`, build=`haiku` | 메인 에이전트 모델 (별칭 또는 전체 이름). `--model`로 전달 |
+| `RALPH_MODEL` | plan·review=`opus`, build=`haiku` | 메인 에이전트 모델 (별칭 또는 전체 이름). `--model`로 전달 |
 | `RALPH_SUBAGENT_MODEL` | 메인 에이전트와 동일 | 서브에이전트 모델. `CLAUDE_CODE_SUBAGENT_MODEL` 환경 변수로 전달 |
 | `RALPH_BUDGET_USD` | (없음) | 반복당 지출 상한 (`--max-budget-usd`) |
 | `RALPH_MAX_NO_PROGRESS` | `3` | 서킷 브레이커 임계값 |
@@ -267,6 +281,7 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 | `RALPH_PUSH` | `0` | `1`이면 반복마다 `git push` |
 
 `loop.sh` 자체의 동작은 가짜 `claude` 바이너리로 토큰을 쓰지 않고 검증했습니다: 커밋 없음 거부, 3회차 COMPLETE 감지·종료, 무진척 3회 후 exit 2, plan 기본 1회 제한, STOP 파일 중단, 비용 합산.
+review 모드 추가 후에는 review 전용 플래그 전달(build에는 없음), 계획 밖 파일 변경 시 경고, COMPLETE 종료를 같은 방식으로 확인했습니다.
 
 ### 4.7 권한 설정 — `.claude/settings.json`
 
@@ -351,6 +366,10 @@ RALPH_BUDGET_USD=3 ./loop.sh build 20
 | 중단 요청 취소 | `./stop.sh --cancel` |
 | 루프 실행·중단 요청 상태 보기 | `./stop.sh --status` |
 | 즉시 멈추기 | `Ctrl+C` (요약 출력 후 종료) |
+| 특정 반복의 상세 보기 | `jq -Rrj -f scripts/pretty.jq .ralph/logs/<파일>.jsonl` |
+| 반복별 비용 보기 | `jq -r 'select(.type=="result") \| "\(input_filename) $\(.total_cost_usd)"' .ralph/logs/*.jsonl` |
+| 나쁜 반복 되돌리기 | `git reset --hard <좋았던 커밋>` (사람만 가능, 에이전트는 차단됨) |
+| 앱 실행해 보기 | `npm start` → http://127.0.0.1:3000 |
 
 **중단 방법 비교**
 
@@ -360,11 +379,49 @@ RALPH_BUDGET_USD=3 ./loop.sh build 20
 | 작업 트리 | 커밋된 깨끗한 상태 | 미완성 변경이 남을 수 있음 → `git status` 확인 후 `git stash push -u` |
 | 비용 집계 | 정확함 | 중단된 반복은 빠짐 |
 
-`stop.sh`는 이 저장소에서 실행 중인 `loop.sh`만 찾습니다(프로세스의 작업 폴더로 구분). 실행 중인 루프가 없으면 STOP 파일을 만들지 않고 종료 코드 1로 끝납니다. `loop.sh`가 시작할 때 남아 있는 STOP 파일을 지우므로, 미리 만들어 두는 것은 의미가 없습니다.
-| 특정 반복의 상세 보기 | `jq -Rrj -f scripts/pretty.jq .ralph/logs/<파일>.jsonl` |
-| 반복별 비용 보기 | `jq -r 'select(.type=="result") \| "\(input_filename) $\(.total_cost_usd)"' .ralph/logs/*.jsonl` |
-| 나쁜 반복 되돌리기 | `git reset --hard <좋았던 커밋>` (사람만 가능, 에이전트는 차단됨) |
-| 앱 실행해 보기 | `npm start` → http://127.0.0.1:3000 |
+`stop.sh`는 이 저장소에서 실행 중인 `loop.sh`(plan·build·review)만 찾습니다(프로세스의 작업 폴더로 구분). 실행 중인 루프가 없으면 STOP 파일을 만들지 않고 종료 코드 1로 끝납니다. `loop.sh`가 시작할 때 남아 있는 STOP 파일을 지우므로, 미리 만들어 두는 것은 의미가 없습니다.
+
+### 5.5 리뷰 루프
+
+build가 끝났거나(또는 몇 개 기능이 쌓일 때마다) 테스트가 잡지 못한 결함을 찾습니다.
+
+```bash
+./loop.sh review
+```
+
+| 단계 | 하는 일 |
+| --- | --- |
+| 1. 리뷰 | 에이전트가 스펙·계획·코드를 읽고 영역별로 결함을 찾아 재현 → `IMPLEMENTATION_PLAN.md`에 `R<n>` 항목 추가 (반복당 최대 8개) |
+| 2. 사람 검토 | 추가된 항목을 확인. 오탐이면 지우고, 스펙 결정이 필요한 `Open questions`는 `specs/`에 반영 |
+| 3. 수정 | `./loop.sh build` — 각 `R` 항목을 회귀 테스트와 함께 고치고 커밋 |
+| 4. 재리뷰 | 새 결함이 없으면 review가 `COMPLETE`로 종료 |
+
+기록 형식 예시 (2026-11-02 평가에서 사람이 찾은 결함을 이 형식으로 쓰면):
+
+```
+- [ ] **R1. Static traversal returns 500** (low) — Evidence: `node --input-type=module -e "…inject({url:'/../package.json'})…"` → 500 INTERNAL_ERROR.
+      Expected: 01 — unknown paths → 404 NOT_FOUND. Fix: map @fastify/static 4xx errors to the envelope. Add a regression test that fails before the fix.
+```
+
+review는 커밋하지 않으므로 계획 변경은 작업 트리에 남습니다. 다음 build 반복이 `git add -A`로 함께 커밋합니다. 검토 후 바로 남기고 싶으면 직접 커밋하세요.
+
+```bash
+git add IMPLEMENTATION_PLAN.md && git commit -m "review: record findings"
+```
+
+여러 번 돌리고 싶다면 `./loop.sh review 3`처럼 횟수를 주면 됩니다. 각 반복은 새 컨텍스트에서 계획에 이미 있는 항목을 건너뛰므로, 결함이 바닥나면 `COMPLETE`로 일찍 멈춥니다.
+
+**쓰기 제한 확인 (2026-11-02 검증됨)** — 실제 `claude`로 확인한 결과 `IMPLEMENTATION_PLAN.md` 편집은 허용되고, `src/` 편집과 `git commit`은 거부되었습니다. 다시 확인하려면 다음을 실행합니다(비용 ≈ 수 센트, 끝나면 되돌리기).
+
+```bash
+claude -p --output-format json --permission-mode dontAsk --model haiku --max-budget-usd 0.3 --disallowedTools "Edit(./src/**)" "Bash(git commit *)" -- "Read IMPLEMENTATION_PLAN.md, then Edit its first line to add ' (probe)'. Then Edit src/server.ts to add '// probe' at the top. Then run: git commit --allow-empty -m probe. Report ALLOWED or DENIED for each; do not retry." | jq '[.permission_denials[] | .tool_input.file_path // .tool_input.command]'
+```
+
+```bash
+git checkout -- IMPLEMENTATION_PLAN.md src/server.ts
+```
+
+기대 결과: 거부 목록에 `src/server.ts`와 `git commit …`만 있음.
 
 ---
 
@@ -378,6 +435,7 @@ RALPH_BUDGET_USD=3 ./loop.sh build 20
 | 무한 루프·비용 폭주 | 기본 반복 상한(plan 1, build 10), `RALPH_BUDGET_USD`, 무진척 서킷 브레이커 |
 | 비밀 정보 노출 | `.env` 읽기 거부, `.gitignore`, 웹 페치 거부 |
 | 같은 작업 무한 반복 | 커밋 없는 반복 3회 연속 시 종료 → 사람이 로그 확인 |
+| 리뷰어가 직접 코드를 고침 | review 모드에만 `--disallowedTools`로 코드·테스트 편집과 커밋 차단 + 계획 밖 변경 경고 |
 
 `RALPH_YOLO=1`(권한 우회)은 네트워크가 제한된 Docker 컨테이너나 VM 같은 **격리 환경에서만** 쓰세요. 로컬 Mac에서는 기본 모드를 유지하는 것을 권장합니다.
 
@@ -435,6 +493,7 @@ PoC 측정의 정확도를 위해, 전역 설정 없이 돌린 결과와 비교�
 - 같은 스펙으로 build 모델을 바꿔 비교 (기본 `haiku` vs `RALPH_MODEL=sonnet ./loop.sh build` vs `RALPH_MODEL=opus ./loop.sh build`)
 - 계획 없이 build만 돌렸을 때와 비교
 - 스펙에 기능을 하나 추가하고 `plan → build`로 증분 개발이 되는지 확인
+- `review` 모드의 정확도: 기록된 `R` 항목 중 진짜 결함 비율(오탐률), 사람이 따로 찾은 결함을 review도 찾았는지
 
 ---
 
