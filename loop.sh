@@ -12,7 +12,7 @@
 #   RALPH_MAX_NO_PROGRESS=3     stop after N build iterations in a row without a new commit
 #   RALPH_PUSH=1                git push after every iteration
 #
-# Graceful stop (after the current iteration): touch .ralph/STOP
+# Graceful stop (after the current iteration): ./stop.sh  (or touch .ralph/STOP)
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -78,7 +78,7 @@ echo "model:       $MODEL"
 echo "subagent:    $SUBAGENT_MODEL"
 echo "permissions: $PERMISSIONS"
 echo "branch:      $BRANCH"
-echo "stop:        touch $STOP_FILE  (or Ctrl+C)"
+echo "stop:        ./stop.sh  (graceful, or touch $STOP_FILE)  ·  Ctrl+C (immediate)"
 
 # --- loop ------------------------------------------------------------------
 while :; do

@@ -89,6 +89,7 @@ sequenceDiagram
 loop-engineering/
 ├── README.md                  # 이 문서
 ├── loop.sh                    # ★ 랄프 루프 실행기 (plan / build 모드)
+├── stop.sh                    # 그레이스풀 셧다운: 현재 반복이 끝나면 루프 종료
 ├── PROMPT_plan.md             # ★ plan 모드 프롬프트 — 계획만 세움
 ├── PROMPT_build.md            # ★ build 모드 프롬프트 — 항목 1개 구현·검증·커밋
 ├── IMPLEMENTATION_PLAN.md     # ★ 반복 간 공유되는 "기억" (현재는 비어 있음)
@@ -117,7 +118,7 @@ loop-engineering/
 | 파일 | 사람 | 에이전트 | 비고 |
 | --- | --- | --- | --- |
 | `specs/*` | ✏️ 작성 | 👀 읽기만 | 권한 설정으로 수정 차단 |
-| `PROMPT_*.md`, `loop.sh`, `scripts/`, `.claude/` | ✏️ 튜닝 | 👀 읽기만 | 권한 설정으로 수정 차단 |
+| `PROMPT_*.md`, `loop.sh`, `stop.sh`, `scripts/`, `.claude/`, `README.md` | ✏️ 튜닝 | 👀 읽기만 | 권한 설정으로 수정 차단 |
 | `IMPLEMENTATION_PLAN.md` | 👀 검토 | ✏️ 생성·갱신 | 틀어지면 지우고 재생성 |
 | `AGENTS.md` | ✏️ 초기 작성 | ✏️ 학습 내용 추가 | 운영 정보만, 짧게 유지 |
 | `src/`, `public/`, `tests/` | 👀 리뷰 | ✏️ 구현 | |
@@ -251,7 +252,7 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 | 진척 감지(서킷 브레이커) | build 모드에서 새 커밋 없는 반복이 연속 3회면 종료 (exit 2) |
 | 실패 재시도 | `claude`가 비정상 종료하면 30s·60s 대기 후 재시도, 연속 3회 실패 시 종료 |
 | 비용 집계 | 반복별 `total_cost_usd`를 합산해 마지막에 출력 |
-| 우아한 중단 | `touch .ralph/STOP` → 현재 반복이 끝난 뒤 종료 |
+| 우아한 중단 | `./stop.sh`(또는 `touch .ralph/STOP`) → 현재 반복이 끝난 뒤 종료. 자세한 내용은 [5.4](#54-관찰중단롤백) |
 | 사전 점검 | `claude`/`jq`/`git`/`npm` 존재, 프롬프트 파일, **최소 1개의 커밋** 확인 |
 
 환경 변수:
@@ -275,7 +276,7 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 2. **`--permission-mode dontAsk` + 허용 목록** — 이 저장소의 기본값. 로컬 Mac에서 PoC 하기에 안전한 쪽입니다.
 
 - **허용**: 파일 읽기/쓰기, 서브에이전트, `npm install/run/test`, `npx vitest/tsc/biome`, `node`, 읽기 계열 git + `git add/commit`, `src|tests|public` 안에서의 `rm`, `localhost` 대상 `curl`
-- **거부**: `git push/reset/checkout/rebase/clean`, `sudo`, `npm publish`, `.env` 읽기, 웹 검색·페치, 그리고 **`specs/`, `PROMPT_*.md`, `loop.sh`, `scripts/`, `.claude/` 수정**
+- **거부**: `git push/reset/checkout/rebase/clean`, `sudo`, `npm publish`, `.env` 읽기, 웹 검색·페치, 그리고 **`specs/`, `PROMPT_*.md`, `loop.sh`, `stop.sh`, `scripts/`, `.claude/`, `README.md` 수정**
 
 > 에이전트가 스스로 스펙이나 프롬프트를 고쳐 "기준을 낮추는" 것을 막는 것이 핵심입니다.
 
@@ -345,8 +346,21 @@ RALPH_BUDGET_USD=3 ./loop.sh build 20
 | 하고 싶은 것 | 방법 |
 | --- | --- |
 | 진척 보기 | `git log --oneline` · `IMPLEMENTATION_PLAN.md` |
-| 지금 반복이 끝나면 멈추기 | `touch .ralph/STOP` |
+| 지금 반복이 끝나면 멈추기 | `./stop.sh` (다른 터미널에서. `touch .ralph/STOP`과 같음) |
+| 멈추기 + 종료될 때까지 기다리기 | `./stop.sh --wait` (기본 최대 30분, `RALPH_STOP_TIMEOUT`으로 조정) |
+| 중단 요청 취소 | `./stop.sh --cancel` |
+| 루프 실행·중단 요청 상태 보기 | `./stop.sh --status` |
 | 즉시 멈추기 | `Ctrl+C` (요약 출력 후 종료) |
+
+**중단 방법 비교**
+
+| | `./stop.sh` (권장) | `Ctrl+C` |
+| --- | --- | --- |
+| 멈추는 시점 | 현재 반복이 커밋까지 마친 뒤 | 즉시 (`claude`가 작업 도중 끊김) |
+| 작업 트리 | 커밋된 깨끗한 상태 | 미완성 변경이 남을 수 있음 → `git status` 확인 후 `git stash push -u` |
+| 비용 집계 | 정확함 | 중단된 반복은 빠짐 |
+
+`stop.sh`는 이 저장소에서 실행 중인 `loop.sh`만 찾습니다(프로세스의 작업 폴더로 구분). 실행 중인 루프가 없으면 STOP 파일을 만들지 않고 종료 코드 1로 끝납니다. `loop.sh`가 시작할 때 남아 있는 STOP 파일을 지우므로, 미리 만들어 두는 것은 의미가 없습니다.
 | 특정 반복의 상세 보기 | `jq -Rrj -f scripts/pretty.jq .ralph/logs/<파일>.jsonl` |
 | 반복별 비용 보기 | `jq -r 'select(.type=="result") \| "\(input_filename) $\(.total_cost_usd)"' .ralph/logs/*.jsonl` |
 | 나쁜 반복 되돌리기 | `git reset --hard <좋았던 커밋>` (사람만 가능, 에이전트는 차단됨) |
