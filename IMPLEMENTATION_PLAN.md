@@ -37,12 +37,6 @@ Conventions for every item:
 
 ### Web UI
 
-- [ ] **13b. Toggle, delete, remaining counter.** Each item has a labelled checkbox and an `aria-label`ed
-      delete button; completed items get a `completed` class (strikethrough in CSS); `#remaining-count`
-      is computed with `countRemaining`. Tests (DOM):
-      - AC-UI-5: toggling the checkbox → `PATCH {completed}` and the `completed` class flips; the delete
-        button → `DELETE` and the `<li>` disappears; `#remaining-count` updates after each.
-
 - [ ] **14. Filters, hash routing, clear completed.** Filter clicks set `location.hash`; `hashchange`
       and the initial hash drive the active filter; the selected link gets `aria-current="page"` (+ a CSS
       class). "완료 항목 삭제" calls the bulk endpoint and re-renders.
@@ -155,6 +149,12 @@ answered in specs 01/02. See "Current state".
   (item 14 adds it for `location.hash`). Harness `tests/helpers/dom.ts` (`mountApp`, stateful fake API that
   records requests, `flush`). Tests: AC-UI-4 in `tests/ui.dom.test.ts`, AC-UI-2 in `tests/ui.static.test.ts`.
   Known gap, owned by item 16: a failed add rejects unhandled. `npm run check` is green (144 tests).
+- **13b. Toggle, delete, remaining counter.** Each item has a checkbox (`aria-label` "완료: …") and a `삭제`
+  button (`aria-label` "삭제: …"). A toggle sends `PATCH {completed}` and waits for the server before
+  re-rendering, so local state mirrors what the server accepted. The `completed` class marks done items.
+  `#remaining-count` shows `N개 남음` via `countRemaining`. Tests in `tests/ui.dom.test.ts`: AC-UI-5.
+  Known gap, owned by item 16: a failed toggle or delete rejects unhandled, and a failed toggle leaves
+  the checkbox showing the new state. `npm run check` is green (147 tests).
 - **12. API client module.** `public/api.js` `createApi(fetchImpl)`: `list`, `create`, `update`, `remove`,
   `clearCompleted`. `Content-Type` is sent only with a body (DELETE stays bodyless, since Fastify rejects an
   empty JSON body). Non-2xx → `ApiError` (`code`, `message`, `status`) from the spec 01 envelope; a non-JSON or

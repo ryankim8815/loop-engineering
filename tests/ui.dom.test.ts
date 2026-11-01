@@ -4,8 +4,24 @@ import { flush, mountApp, type Todo } from './helpers/dom.ts';
 
 // DOM tests for public/app.js against public/index.html, with a fake API (see helpers/dom.ts).
 
+// Reads the title span, not li.textContent, because each item also holds a checkbox and a
+// delete button whose text must not count as part of the title.
 function listTitles(document: Document): string[] {
-  return [...document.querySelectorAll('#todo-list > li')].map((li) => li.textContent ?? '');
+  return [...document.querySelectorAll('#todo-list > li .todo-title')].map(
+    (span) => span.textContent ?? '',
+  );
+}
+
+function itemFor(document: Document, title: string): HTMLLIElement {
+  const item = [...document.querySelectorAll<HTMLLIElement>('#todo-list > li')].find(
+    (li) => li.querySelector('.todo-title')?.textContent === title,
+  );
+  if (!item) throw new Error(`no item titled "${title}"`);
+  return item;
+}
+
+function remainingText(document: Document): string {
+  return document.querySelector('#remaining-count')?.textContent ?? '';
 }
 
 function writes(requests: { method: string }[]) {
@@ -93,5 +109,65 @@ describe('AC-UI-4: add a todo', () => {
 
     expect(writes(server.requests)).toEqual([]);
     expect(input.value).toBe('우유');
+  });
+});
+
+const done: Todo = {
+  id: '22222222-2222-4222-8222-222222222222',
+  title: 'done',
+  completed: true,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
+describe('AC-UI-5: toggle, delete, and the remaining counter', () => {
+  it('shows the remaining count (not completed items) on load', async () => {
+    const { document } = await mountApp([existing, done]);
+
+    expect(remainingText(document)).toBe('1개 남음');
+  });
+
+  it('toggling the checkbox sends PATCH {completed}, flips the completed class, and updates the counter', async () => {
+    const { document, server } = await mountApp([existing, done]);
+    const checkbox = itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle');
+    if (!checkbox) throw new Error('.todo-toggle missing');
+
+    checkbox.click();
+    await flush();
+
+    expect(writes(server.requests)).toEqual([
+      { method: 'PATCH', url: `/api/todos/${existing.id}`, body: { completed: true } },
+    ]);
+    expect(itemFor(document, 'existing').classList.contains('completed')).toBe(true);
+    expect(
+      itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.checked,
+    ).toBe(true);
+    expect(remainingText(document)).toBe('0개 남음');
+
+    itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.click();
+    await flush();
+
+    expect(writes(server.requests).at(-1)).toEqual({
+      method: 'PATCH',
+      url: `/api/todos/${existing.id}`,
+      body: { completed: false },
+    });
+    expect(itemFor(document, 'existing').classList.contains('completed')).toBe(false);
+    expect(remainingText(document)).toBe('1개 남음');
+  });
+
+  it('the delete button sends DELETE, removes the item, and updates the counter', async () => {
+    const { document, server } = await mountApp([existing, done]);
+    const remove = itemFor(document, 'existing').querySelector<HTMLButtonElement>('.todo-delete');
+    if (!remove) throw new Error('.todo-delete missing');
+
+    remove.click();
+    await flush();
+
+    expect(writes(server.requests)).toEqual([
+      { method: 'DELETE', url: `/api/todos/${existing.id}`, body: undefined },
+    ]);
+    expect(listTitles(document)).toEqual(['done']);
+    expect(remainingText(document)).toBe('0개 남음');
   });
 });

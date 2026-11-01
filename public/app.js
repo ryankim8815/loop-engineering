@@ -3,7 +3,7 @@
 // with a DOM harness and a fake fetch. The pure rules (title validation) come from state.js.
 // Each action re-renders the whole list from the in-memory copy of server state.
 
-import { validateTitle } from './state.js';
+import { countRemaining, validateTitle } from './state.js';
 
 /**
  * @typedef {import('./state.js').Todo} Todo
@@ -19,12 +19,14 @@ export function startApp({ document, api }) {
   const addButton = /** @type {HTMLButtonElement} */ (document.getElementById('add-button'));
   const hint = /** @type {HTMLElement} */ (document.getElementById('new-title-hint'));
   const list = /** @type {HTMLUListElement} */ (document.getElementById('todo-list'));
+  const remaining = /** @type {HTMLElement} */ (document.getElementById('remaining-count'));
 
   /** @type {Todo[]} */
   let todos = [];
 
   function render() {
     list.replaceChildren(...todos.map(renderItem));
+    remaining.textContent = `${countRemaining(todos)}개 남음`;
   }
 
   /**
@@ -34,11 +36,46 @@ export function startApp({ document, api }) {
   function renderItem(todo) {
     const item = document.createElement('li');
     item.dataset.id = todo.id;
+    item.classList.toggle('completed', todo.completed);
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'todo-toggle';
+    checkbox.checked = todo.completed;
+    checkbox.setAttribute('aria-label', `완료: ${todo.title}`);
+    checkbox.addEventListener('change', () => {
+      setCompleted(todo.id, checkbox.checked);
+    });
+
     const title = document.createElement('span');
     title.className = 'todo-title';
     title.textContent = todo.title;
-    item.append(title);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'todo-delete';
+    remove.textContent = '삭제';
+    remove.setAttribute('aria-label', `삭제: ${todo.title}`);
+    remove.addEventListener('click', () => {
+      removeTodo(todo.id);
+    });
+
+    item.append(checkbox, title, remove);
     return item;
+  }
+
+  // Waits for the server before changing local state, so the list always mirrors what
+  // the server accepted. Local state is replaced by the server's copy (its updatedAt).
+  async function setCompleted(id, completed) {
+    const updated = await api.update(id, { completed });
+    todos = todos.map((todo) => (todo.id === updated.id ? updated : todo));
+    render();
+  }
+
+  async function removeTodo(id) {
+    await api.remove(id);
+    todos = todos.filter((todo) => todo.id !== id);
+    render();
   }
 
   async function submit() {
