@@ -1,0 +1,88 @@
+// Single source of truth for the error envelope:
+//   { "error": { "code": "...", "message": "..." } }
+// Every error response from the server (API, unknown paths, Fastify-internal
+// failures) goes through toErrorResponse(), so clients can rely on one shape.
+
+export const NOT_FOUND_MESSAGE = '요청한 리소스를 찾을 수 없습니다.';
+export const INTERNAL_MESSAGE = '서버 오류가 발생했습니다.';
+
+export class AppError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+
+  constructor(statusCode: number, code: string, message: string) {
+    super(message);
+    this.name = 'AppError';
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+export function validationError(message: string): AppError {
+  return new AppError(400, 'VALIDATION_ERROR', message);
+}
+
+export function notFound(message: string = NOT_FOUND_MESSAGE): AppError {
+  return new AppError(404, 'NOT_FOUND', message);
+}
+
+export interface ErrorEnvelope {
+  error: { code: string; message: string };
+}
+
+export function errorEnvelope(code: string, message: string): ErrorEnvelope {
+  return { error: { code, message } };
+}
+
+// Fastify reports body-parsing failures with stable `code`s. We map them to
+// 400 VALIDATION_ERROR (spec 01) instead of Fastify's default 400/415 shapes.
+const BODY_ERROR_MESSAGES = new Map<string, string>([
+  ['FST_ERR_CTP_INVALID_JSON_BODY', '요청 본문이 올바른 JSON이 아닙니다.'],
+  ['FST_ERR_CTP_EMPTY_JSON_BODY', 'JSON 요청 본문이 비어 있습니다.'],
+  [
+    'FST_ERR_CTP_INVALID_MEDIA_TYPE',
+    '지원하지 않는 Content-Type입니다. application/json을 사용하세요.',
+  ],
+]);
+
+export interface ErrorResponse {
+  statusCode: number;
+  body: ErrorEnvelope;
+}
+
+function readProp(value: unknown, key: string): unknown {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+// Decides what the client sees. Only AppError and known client-side Fastify
+// failures expose a message; everything else becomes a generic 500 so stack
+// traces and internal paths never reach the response body.
+export function toErrorResponse(error: unknown): ErrorResponse {
+  if (error instanceof AppError) {
+    return { statusCode: error.statusCode, body: errorEnvelope(error.code, error.message) };
+  }
+
+  const fastifyCode = readProp(error, 'code');
+  if (typeof fastifyCode === 'string') {
+    const bodyMessage = BODY_ERROR_MESSAGES.get(fastifyCode);
+    if (bodyMessage !== undefined) {
+      return { statusCode: 400, body: errorEnvelope('VALIDATION_ERROR', bodyMessage) };
+    }
+  }
+
+  // Fastify schema validation failures carry a `validation` array; their message is safe to show.
+  if (readProp(error, 'validation') !== undefined) {
+    const message = readProp(error, 'message');
+    return {
+      statusCode: 400,
+      body: errorEnvelope(
+        'VALIDATION_ERROR',
+        typeof message === 'string' ? message : '잘못된 요청입니다.',
+      ),
+    };
+  }
+
+  return { statusCode: 500, body: errorEnvelope('INTERNAL_ERROR', INTERNAL_MESSAGE) };
+}

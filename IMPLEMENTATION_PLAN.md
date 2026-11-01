@@ -7,7 +7,7 @@ acceptance criterion in `specs/*` is covered by a passing automated test.
 
 Confirmed by reading the repo, not assumed:
 
-- `src/` is **empty**. There is no `app.ts`, no `server.ts`, no routes and no persistence code.
+- `src/` holds `app.ts`, `server.ts` and `errors.ts` (items 2–3). There is no persistence or todo route yet.
 - `public/` does not exist.
 - `tests/` holds only `toolchain.smoke.test.ts` (Node ≥ 24, `node:sqlite`, `DB_PATH=':memory:'`). Keep it.
 - `package.json` has **no runtime dependencies**. `fastify`, `@fastify/static` and `happy-dom` are not in
@@ -32,31 +32,6 @@ Conventions for every item:
 ## Prioritized checklist
 
 ### Foundation
-
-- [ ] **2. App factory + server entry + health.** `src/app.ts` exports
-      `buildApp(options?: { dbPath?: string; logger?: boolean }): FastifyInstance` (sync or async; pick
-      one and use it the same way in every test). `dbPath` defaults to `process.env.DB_PATH ?? './data/todos.db'`.
-      `GET /api/health` → `200 { "status": "ok" }`. `src/server.ts` calls `buildApp()` and listens on
-      `PORT` (default 3000) / `HOST` (default `127.0.0.1`). Test: `tests/health.test.ts` via `app.inject()`.
-      _Spec 01 endpoint table, 03 code structure._
-
-- [ ] **3. Central error handling.** `src/errors.ts`: `AppError` (`code`, `statusCode`; plain fields, no
-      parameter properties) plus `validationError(msg)` / `notFound(msg)` helpers. In `buildApp`:
-      - `setErrorHandler` maps these to 400 `VALIDATION_ERROR`: Fastify schema/validation errors, malformed
-        JSON (`FST_ERR_CTP_INVALID_JSON_BODY`), empty JSON body (`FST_ERR_CTP_EMPTY_JSON_BODY`) and an
-        unsupported media type (`FST_ERR_CTP_INVALID_MEDIA_TYPE`, Fastify's 415).
-      - `AppError` → its own status/code. Anything else (including other 4xx/5xx Fastify errors) → 500
-        `INTERNAL_ERROR` with a generic message. Log the real error; never put it in the body.
-      - `setNotFoundHandler` → 404 `NOT_FOUND` envelope for **all** unknown paths, not only `/api/*`,
-        regardless of the `Accept` header.
-      Tests (`tests/errors.test.ts`). Register throwaway routes on the built instance inside the test
-      (e.g. `app.post('/__test/echo', …)` before the first `inject`), so no test-only code ships in `src/`:
-      - AC-API-12: `GET /nope` and `GET /api/nope` → 404, JSON content type, `{ error: { code: 'NOT_FOUND', message } }`.
-        Also `GET /nope` with `Accept: text/html` → the same JSON 404, not HTML.
-      - a route that throws → 500 envelope; the body has no `stack`, no `at `, no `/Users` or `src/`
-      - malformed-JSON POST → 400 `VALIDATION_ERROR` envelope
-      - `Content-Type: text/plain` POST → 400 `VALIDATION_ERROR` (not 415)
-      _Spec 01 "요청 처리 규칙" Content-Type, "오류 형식", 03 품질 기준._
 
 - [ ] **4. Persistence layer.** `src/db.ts` `openDatabase(path)`: `DatabaseSync`, creates the parent dir
       when path ≠ `:memory:`, `CREATE TABLE IF NOT EXISTS todos (id TEXT PRIMARY KEY, title TEXT NOT NULL,
@@ -225,3 +200,16 @@ answered in specs 01/02. See "Current state".
   global error envelope, happy-dom), commit `bc74c4b` (human-owned).
 - **1. Dependencies.** Added runtime `fastify@^5` and `@fastify/static` (resolved to 5.x and 10.x), dev
   `happy-dom`. These are the only additions 03 allows. `npm run check` is green (3 existing tests pass).
+- **2. App factory + health.** `src/app.ts` `buildApp({ logger? })` (sync, returns a Fastify instance),
+  `GET /api/health` → 200 `{ status: 'ok' }`. `src/server.ts` listens on `PORT`/`HOST` (defaults 3000 /
+  127.0.0.1). `tests/health.test.ts` covers the route via `app.inject()`. `dbPath` is **not** added yet:
+  item 4 adds it together with the DB wiring. `npm run check` is green (4 tests).
+  Not verified: a real `node src/server.ts` run and curl. Left for item 18's manual smoke test.
+  Committed in item 3's commit (these files were still untracked before).
+- **3. Central error handling.** `src/errors.ts`: `AppError`, `validationError`, `notFound`,
+  `errorEnvelope`, `toErrorResponse` (the single mapping to the envelope). `src/app.ts` wires
+  `setErrorHandler` (AppError → own status; Fastify body/media-type/validation errors → 400
+  `VALIDATION_ERROR`; everything else → 500 `INTERNAL_ERROR`, logged, never in the body) and
+  `setNotFoundHandler` (JSON 404 for all paths). `tests/errors.test.ts` covers AC-API-12 and the error
+  paths. Discovery: Fastify ships a built-in `text/plain` parser, so `app.ts` removes it. Without that,
+  text/plain bodies returned 200 instead of 400. `npm run check` is green (12 tests).

@@ -25,3 +25,5 @@ Keep this file short and operational (how to build, run and test). Progress belo
 ## Operational Notes
 
 <!-- Ralph appends short learnings here (commands, gotchas). -->
+- Fastify ships a built-in `text/plain` body parser. `buildApp` removes it (spec 01 accepts JSON only). Do not re-add it.
+- Biome formats test and source files. If `npm run check` fails only on lint, run `npm run format` and re-run.
