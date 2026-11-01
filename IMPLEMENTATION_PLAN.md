@@ -35,11 +35,6 @@ Conventions for every item:
 
 ### REST API
 
-- [ ] **8. `DELETE /api/todos?completed=true` (bulk clear).** → `200 { "deleted": n }`. Tests:
-      - AC-API-7: a mix of completed/active → only completed removed and `deleted` matches; none completed → `{ deleted: 0 }`
-      - AC-API-10: `DELETE /api/todos` (no query) and `?completed=false` → 400 `VALIDATION_ERROR`, and the
-        list is unchanged afterwards
-
 - [ ] **9. Persistence across app instances.** AC-API-8: `buildApp({ dbPath: <tmp>/nested/todos.db })`,
       create a todo, `await app.close()`, build a new app on the same path, and GET returns the todo. Use
       `fs.mkdtempSync(path.join(os.tmpdir(), ...))` and remove it in `afterEach`. Also assert that the
@@ -183,3 +178,8 @@ answered in specs 01/02. See "Current state".
   an empty body. Missing or non-UUID ids → 404 `NOT_FOUND`. Tests in `tests/todo-by-id.api.test.ts`: AC-API-4,
   5 (incl. back-to-back PATCHes), 6 (UUID and non-UUID), 9, plus PATCH title trim/limit, unknown field,
   `completed: "yes"`, text/plain, and DELETE with no body or Content-Type. `npm run check` is green (94 tests).
+- **8. `DELETE /api/todos?completed=true` (bulk clear).** `src/routes/todos.ts` runs `parseBulkDeleteQuery`
+  (the guard, so a bare DELETE can't wipe the list) and then `removeCompleted()` → 200 `{ deleted: n }`.
+  Tests in `tests/todos-bulk-delete.api.test.ts`: AC-API-7 (mixed set, and none completed → `{ deleted: 0 }`),
+  AC-API-10 (no query, `completed=false`, repeated `completed` → 400, list unchanged). `npm run check` is
+  green (99 tests).

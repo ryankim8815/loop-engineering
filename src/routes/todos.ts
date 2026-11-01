@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { notFound } from '../errors.ts';
-import { parseCreateBody, parseFilter, parsePatchBody } from '../validation.ts';
+import {
+  parseBulkDeleteQuery,
+  parseCreateBody,
+  parseFilter,
+  parsePatchBody,
+} from '../validation.ts';
 
 // Todo routes. Bodies and queries are validated in validation.ts; this module only
 // maps HTTP to the repository. Errors are thrown as AppError and rendered by the
@@ -17,6 +22,14 @@ export function registerTodoRoutes(app: FastifyInstance): void {
     const { title } = parseCreateBody(request.body);
     const todo = app.todos.create(title);
     return reply.code(201).send(todo);
+  });
+
+  // Bulk clear of completed todos. The `completed=true` query is mandatory (see
+  // parseBulkDeleteQuery): a bare DELETE /api/todos must never wipe the whole list.
+  app.delete<{ Querystring: Record<string, unknown> }>('/api/todos', async (request, reply) => {
+    parseBulkDeleteQuery(request.query);
+    const deleted = app.todos.removeCompleted();
+    return reply.code(200).send({ deleted });
   });
 
   // Unknown ids (including non-UUID ones, spec 01) are 404 NOT_FOUND. The repository
