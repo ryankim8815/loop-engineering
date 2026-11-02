@@ -46,16 +46,6 @@ Each evidence command is run from the repo root as
       one returned) and spec 02 (UI state matches the server). Fix: have `TodoRepository.create`/`update` return the
       row re-read with `get(id)` instead of the in-memory object (see Decisions). Add a regression test that fails
       before the fix (POST body title === GET title for `"a\ud800b"`).
-- [ ] **R5. A late list response overwrites items added meanwhile (UI drifts from the server)** (medium) —
-      Evidence: `node --input-type=module -e "import { Window } from 'happy-dom'; import { readFileSync } from 'node:fs'; const win = new Window({ url: 'http://127.0.0.1:3000/' }); win.document.write(readFileSync('public/index.html','utf8').replace(/<script[^>]*><\/script>/,'')); const { startApp } = await import('./public/app.js'); let release; const api = { list: () => new Promise(r => { release = () => r([]); }), create: async (title) => ({ id: '11111111-1111-4111-8111-111111111111', title, completed: false, createdAt: 'x', updatedAt: 'x' }) }; const started = startApp({ document: win.document, window: win, api }); win.document.getElementById('new-title').value = '우유 사기'; win.document.getElementById('add-button').click(); await new Promise(r => setTimeout(r, 0)); console.log([...win.document.querySelectorAll('.todo-title')].map(e => e.textContent)); release(); await started; console.log([...win.document.querySelectorAll('.todo-title')].map(e => e.textContent), win.document.getElementById('remaining-count').textContent); await win.happyDOM.close();"`
-      → `[ '우유 사기' ]` then `[] 0개 남음`. The item the server created (201) vanishes from the UI because the
-      initial `api.list` (a snapshot taken before the POST) resolves later and `startApp` does `todos = loaded`.
-      `resync()` in `perform` has the same overwrite when another action succeeds while its GET is in flight.
-      Expected: spec 02 "API 오류 … 화면 상태를 서버와 다시 맞춘다" and the UI must reflect what the server accepted
-      (spec 02 동작 table: an added item appears at the bottom of the list). Fix: in `public/app.js`, give every
-      local mutation a version counter and drop a list response whose request started before the latest mutation
-      (or re-fetch instead of assigning). Add a regression DOM test (`failNext`-style deferred `list`) that fails
-      before the fix.
 - [ ] **R6. An empty `DB_PATH` silently uses a throwaway database** (low) — Evidence:
       `node --input-type=module -e "process.env.DB_PATH = ''; const { buildApp } = await import('./src/app.ts'); const J = { 'content-type': 'application/json' }; let app = buildApp(); await app.inject({ method: 'POST', url: '/api/todos', headers: J, payload: '{\"title\":\"persist me\"}' }); await app.close(); app = buildApp(); const r = await app.inject({ method: 'GET', url: '/api/todos' }); console.log(r.statusCode, r.body); await app.close();"`
       → `200 []`. `options.dbPath ?? process.env.DB_PATH ?? DEFAULT_DB_PATH` keeps `''`, and `new DatabaseSync('')`
@@ -129,6 +119,12 @@ Each evidence command is run from the repo root as
 
 ## Done
 
+- **R5. A late list response overwrote items added meanwhile (review 2026-11-02).** `public/app.js` counts accepted
+  local changes (`changes`, bumped by `commitTodos` for every add, edit, toggle, delete and clear). `loadList()` is
+  shared by the first load and `resync()`. It requests the list again when a change landed during the request, so
+  a stale snapshot never replaces newer local state. Test in `tests/ui.dom.test.ts` (`R5:`): the first GET is
+  snapshotted before the add and held. The test failed before the fix (`[]` instead of `['우유 사기']`). Decision:
+  see "R5 fix shape". `npm run check` is green (200 tests).
 - **R7. Range / If-Match headers on static files returned 500 (review 2026-11-02).** `toErrorResponse` maps any other
   non-AppError with a 4xx `statusCode` (416 for Range, 412 for If-Match / If-Unmodified-Since) to 400
   `VALIDATION_ERROR`, after R2's 403/404 rule. These are not logged. Plain errors without `statusCode` stay 500

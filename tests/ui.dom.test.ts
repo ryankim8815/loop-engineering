@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
-import { flush, mountApp, type Todo } from './helpers/dom.ts';
+import { createApi } from '../public/api.js';
+import { startApp } from '../public/app.js';
+import { createFakeServer, flush, loadIndexBody, mountApp, type Todo } from './helpers/dom.ts';
 
 // DOM tests for public/app.js against public/index.html, with a fake API (see helpers/dom.ts).
 
@@ -577,3 +579,52 @@ describe('AC-UI-8: API errors show a banner and re-sync the list', () => {
     expect(listTitles(document)).toEqual(['existing', 'buy milk']);
   });
 });
+
+describe('a late list response (R5)', () => {
+  // The first GET is answered from a snapshot taken before the add, but the response is
+  // held. Before the fix that stale list replaced local state when it arrived, so the item
+  // the server had just accepted disappeared from the screen until a reload. Now a list that
+  // started before the latest change is fetched again instead of being trusted.
+  it('R5: a late initial list does not drop an item added while it was in flight', async () => {
+    loadIndexBody();
+    const server = createFakeServer([]);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let heldFirstList = false;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && !heldFirstList) {
+        heldFirstList = true;
+        const snapshot = await server.fetch(input, init);
+        await gate;
+        return snapshot;
+      }
+      return server.fetch(input, init);
+    }) as typeof fetch;
+
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    const input = document.getElementById('new-title') as HTMLInputElement;
+    input.value = '우유 사기';
+    (document.getElementById('add-button') as HTMLButtonElement).click();
+    await settle();
+    expect(listTitles(document)).toEqual(['우유 사기']);
+
+    release();
+    await started;
+    await settle();
+
+    expect(listTitles(document)).toEqual(['우유 사기']);
+    expect(remainingText(document)).toBe('1개 남음');
+    expect(server.requests.filter((request) => request.method === 'GET')).toHaveLength(2);
+  });
+});
+
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await flush();
+  }
+}

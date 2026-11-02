@@ -50,6 +50,32 @@ export function startApp({ document, window, api }) {
   /** @type {Todo[]} */
   let todos = [];
 
+  // Counts local changes the server has accepted. A list response that started before the
+  // latest change may not include it, so it is fetched again rather than trusted (R5).
+  let changes = 0;
+
+  /** @param {Todo[]} next */
+  function commitTodos(next) {
+    todos = next;
+    changes += 1;
+    render();
+  }
+
+  // Replaces local state with a fresh list. If a change landed while the request was in
+  // flight, the response may be older than that change, so the list is requested again.
+  // Each retry starts after a change, so the loop ends once the user stops changing things.
+  // Errors propagate to the caller.
+  async function loadList() {
+    let started;
+    let loaded;
+    do {
+      started = changes;
+      loaded = await api.list('all');
+    } while (started !== changes);
+    todos = loaded;
+    render();
+  }
+
   function showError(message) {
     banner.textContent = message;
     banner.hidden = false;
@@ -78,8 +104,7 @@ export function startApp({ document, window, api }) {
 
   async function resync() {
     try {
-      todos = await api.list('all');
-      render();
+      await loadList();
     } catch (error) {
       // The re-fetch itself failed (for example, the server is down). Keep the local state
       // and report the new error. Do not retry, so a dead server does not cause a loop.
@@ -197,8 +222,7 @@ export function startApp({ document, window, api }) {
       }
       await perform(async () => {
         const updated = await api.update(todo.id, { title: result.value });
-        todos = todos.map((t) => (t.id === updated.id ? updated : t));
-        render();
+        commitTodos(todos.map((t) => (t.id === updated.id ? updated : t)));
       });
     }
 
@@ -225,24 +249,21 @@ export function startApp({ document, window, api }) {
   function setCompleted(id, completed) {
     return perform(async () => {
       const updated = await api.update(id, { completed });
-      todos = todos.map((todo) => (todo.id === updated.id ? updated : todo));
-      render();
+      commitTodos(todos.map((todo) => (todo.id === updated.id ? updated : todo)));
     });
   }
 
   function removeTodo(id) {
     return perform(async () => {
       await api.remove(id);
-      todos = todos.filter((todo) => todo.id !== id);
-      render();
+      commitTodos(todos.filter((todo) => todo.id !== id));
     });
   }
 
   function clearCompleted() {
     return perform(async () => {
       await api.clearCompleted();
-      todos = todos.filter((todo) => !todo.completed);
-      render();
+      commitTodos(todos.filter((todo) => !todo.completed));
     });
   }
 
@@ -255,10 +276,9 @@ export function startApp({ document, window, api }) {
     // On failure the typed title stays in the input, so the user can retry.
     await perform(async () => {
       const created = await api.create(result.value);
-      todos = [...todos, created];
+      commitTodos([...todos, created]);
       input.value = '';
       hint.textContent = '';
-      render();
     });
   }
 
@@ -292,13 +312,7 @@ export function startApp({ document, window, api }) {
   window.addEventListener('hashchange', applyHash);
 
   // A failed first load shows the banner and leaves the list empty. It is not retried here.
-  return api.list('all').then(
-    (loaded) => {
-      todos = loaded;
-      render();
-    },
-    (error) => {
-      showError(errorMessage(error));
-    },
-  );
+  return loadList().catch((error) => {
+    showError(errorMessage(error));
+  });
 }
