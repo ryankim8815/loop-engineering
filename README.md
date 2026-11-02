@@ -462,7 +462,8 @@ RALPH_TOTAL_BUDGET_USD=10 RALPH_CYCLE_BRANCH=1 ./cycle.sh 3 10 1
 | --- | --- |
 | build가 COMPLETE·반복 상한·무진척으로 끝남 | review로 넘어감 |
 | build가 두 세트 연속 무진척 | 전체 종료 (exit 2) |
-| build COMPLETE + review가 새 결함 없음 | **수렴** → 조기 종료 (exit 0) |
+| build COMPLETE + review가 새 결함 없음 + 열린 R 항목 0개 (`## Blocked` 섹션 제외) | **수렴** → 조기 종료 (exit 0) |
+| build COMPLETE + review COMPLETE이지만 열린 R 항목이 남음 (review 앞 회차가 기록) | 다음 세트로 진행해 build가 고침 |
 | 한 세트 동안 새 커밋 0개 + 새 R 항목 0개 | 전체 종료 (exit 2) |
 | 누적 비용이 예산 이상 | 다음 단계를 시작하지 않고 종료 (exit 30) |
 | `stop.sh` / 연속 실패 / Ctrl+C | 즉시 종료 (exit 20 / 1 / 130) |
@@ -486,12 +487,12 @@ set   build         commits   review        new R items   cost
 1     COMPLETE      1         max           1             $0.3000
 2     COMPLETE      1         COMPLETE      0             $0.3000
 total cost:  $0.6000
-stopped:     converged: build COMPLETE and review found nothing new
+stopped:     converged: build COMPLETE, review found nothing new, no open R item
 ```
 
 중단은 `./stop.sh`로 합니다. `stop.sh`는 `cycle.sh`도 찾아내며, 실행 중인 `loop.sh` 반복이 끝나면 사이클 전체가 멈춥니다.
 
-**가짜 `claude`로 검증한 종료 경로** — 수렴(0), 세트 상한(10), 무진척(2), 두 세트 연속 무진척(2), 예산(30), 중단 요청(20), `npm run check` 실패 시 COMPLETE 거부. 자율 규칙은 사이클 안의 호출에만 붙고, 심각도 제한은 2세트째 review에만 붙는 것도 확인했습니다. 실제 모델로 사이클을 돌려 보지는 않았습니다.
+**가짜 `claude`로 검증한 종료 경로** — 수렴(0), 열린 R 항목이 남은 COMPLETE는 수렴으로 보지 않음, 세트 상한(10), 무진척(2), 두 세트 연속 무진척(2), 예산(30), 중단 요청(20), `npm run check` 실패 시 COMPLETE 거부. 자율 규칙은 사이클 안의 호출에만 붙고, 심각도 제한은 2세트째 review에만 붙는 것도 확인했습니다. 실제 모델로 사이클을 돌려 보지는 않았습니다.
 
 ---
 

@@ -4,15 +4,15 @@
 #   ./cycle.sh [C] [B] [R]   up to C sets of (build ≤ B iterations, then review ≤ R iterations)   (default 3 10 1)
 #
 # Each loop.sh call runs with RALPH_AUTONOMOUS=1 (PROMPT_autonomy.md): items that need a human go to
-# "Blocked", ambiguous specs get a recorded decision, review findings must be reproduced before a fix.
+# "Blocked" and ambiguous specs get a recorded decision.
 #
 # Environment (everything else, e.g. RALPH_MODEL, passes through to loop.sh):
 #   RALPH_TOTAL_BUDGET_USD=10        spend cap for the whole run (default: none)
 #   RALPH_REVIEW_MIN_SEVERITY=medium from the 2nd set on, review records only this severity or higher
 #   RALPH_CYCLE_BRANCH=1             run on a new branch ralph/cycle-<timestamp>
 #
-# Stops early when a set ends with build COMPLETE and review finding nothing new (converged), when a set
-# produces neither a commit nor a finding, when build makes no progress in two sets in a row, or on
+# Stops early when a set ends with build COMPLETE, review finding nothing new and no open R item left
+# (converged), when a set produces neither a commit nor a finding, when build makes no progress in two sets in a row, or on
 # budget / stop request / failure.
 # Exit codes: 0 converged · 10 max sets · 2 stuck or no progress · 20 stop requested · 30 budget
 #             1 claude kept failing · 130 Ctrl+C
@@ -49,7 +49,11 @@ reason=""
 code=10
 report=()
 
-open_findings() { grep -cE '^[[:space:]]*- \[ \] \*\*R[0-9]+' "$PLAN" 2>/dev/null || true; }
+# Unchecked R items outside "## Blocked": a blocked finding waits for a human and must not hold up convergence.
+open_findings() {
+  awk '/^## / { blocked = /^## Blocked/ } !blocked && /^[[:space:]]*- \[ \] \*\*R[0-9]+/ { n++ } END { print n + 0 }' \
+    "$PLAN" 2>/dev/null || echo 0
+}
 
 add_cost() { total_cost="$(awk -v a="$total_cost" -v b="${1:-0}" 'BEGIN { printf "%.4f", a + b }')"; }
 
@@ -174,8 +178,9 @@ for ((cycle = 1; cycle <= CYCLES; cycle++)); do
 
   r="$(fatal_reason "$review_exit")"
   if [[ -n "$r" ]]; then reason="$r"; code=$review_exit; break; fi
-  if [[ "$build_exit" == 0 && "$review_exit" == 0 ]]; then
-    reason="converged: build COMPLETE and review found nothing new"; code=0; break
+  # A review run can record findings in early iterations and still end COMPLETE, so check the plan as well.
+  if [[ "$build_exit" == 0 && "$review_exit" == 0 && "$(open_findings)" == 0 ]]; then
+    reason="converged: build COMPLETE, review found nothing new, no open R item"; code=0; break
   fi
   if (( commits == 0 && new_findings == 0 )); then
     reason="no commit and no new finding in set $cycle"; code=2; break
