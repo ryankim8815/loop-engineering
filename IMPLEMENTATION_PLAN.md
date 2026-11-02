@@ -39,7 +39,34 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-(none open; R15 is in Done.)
+- [ ] **R17. Pressing another list control while an inline edit is open destroys the control being pressed**
+      (medium) — Evidence: a `node --input-type=module -e` script built a happy-dom `Window`, loaded the `index.html`
+      body, ran `startApp` with a stub fetch seeded with A and B, opened the editor on A (dblclick), then called
+      `.focus()` on B's `.todo-delete`, `.todo-toggle` and `.todo-edit-button` in turn. A mousedown does the same:
+      focus moves and the editor blurs. → `editor closed: true | pressed control still in DOM: false` for all three.
+      `requests: [ 'GET /api/todos?filter=all' ]`. The blur handler calls `cancel()` → `render()`, which rebuilds every
+      `<li>` (`list.replaceChildren`) between mousedown and mouseup. Browsers send `click` to the common ancestor of the
+      mousedown and mouseup targets, and the mousedown target is now detached, so the user's first click on 삭제 or a
+      checkbox (any item, including the edited one) does nothing. The lost click is real-browser behaviour that
+      happy-dom does not model, so the test should assert detachment. Expected: spec 02 (blur = cancel only;
+      삭제 removes the item and the checkbox toggles it, with one action). Fix: when blur cancels the edit, replace only
+      the editor element with the title span (and clear `editing`) instead of calling `render()`, so the other nodes
+      survive. Add a regression test that fails before the fix: open the edit on A, focus B's 삭제, then assert that the
+      same button element is still `isConnected` and that clicking it sends one `DELETE` for B.
+- [ ] **R18. Keyboard focus is lost to `<body>` after every toggle or inline-edit save** (medium) — Evidence: a
+      `node --input-type=module -e` script built a happy-dom `Window`, loaded the `index.html` body, ran `startApp`
+      with a stub fetch seeded with T1–T3, focused T2's `.todo-toggle` and called `.click()`, then focused T1's
+      `.todo-edit-button`, clicked it, set the editor to `T1x` and dispatched `keydown` Enter →
+      `before: true 완료: T2` / `after: active= BODY | old checkbox connected= false | new checked= true` /
+      `after edit Enter: active= BODY | title= T1x`. `commitTodos` → `render()` rebuilds every `<li>`
+      (`list.replaceChildren`), so the focused control is detached. A keyboard user who toggles item 15 of 20 with
+      Space must Tab from the top of the page again before the next action. Esc/cancel goes through the same
+      `render()`, but that path was not reproduced separately.
+      Expected: spec 02 접근성 ("모든 컨트롤은 키보드만으로 조작 가능"). Fix: in `render()`, remember the focused
+      control's item id and class (`todo-toggle`/`todo-edit-button`/`todo-delete`, or the title's edit button after an
+      edit ends) and refocus the matching element in the new list if that item is still shown. Add a regression test
+      that fails before the fix: focus B's checkbox, toggle it, flush, assert `document.activeElement` is B's new
+      `.todo-toggle`; and open/save an edit via 수정 + Enter, assert focus is on that item's `.todo-edit-button`.
 
 ### REST API
 
@@ -147,6 +174,30 @@ Each evidence command is run from the repo root as
   it does not say what happens to text typed while the POST is pending. Chosen: clear only when the input still
   holds the submitted text, so the user's new text stays. Rejected: always clearing (loses typed text with no
   notice), and disabling the input during the POST (adds a visible UI state spec 02 does not describe).
+- **Review scope (review 2026-11-02, R17 pass).** Also behaved per spec 01 and not recorded: malformed percent-encoding
+  inside the query (`?filter=%`, `?filter=%E0%A4%A`, `DELETE ?completed=%`) → 400; a 400k-deep nested array title →
+  400; a deeply nested body with `constructor`/`__proto__` keys → 400; `HEAD /api/todos` → 200 with an empty body;
+  `GET /api/todos` with a `text/plain` body → 200; `/index.html/` and `/api/todos/%00` → JSON 404; Content-Type
+  variants ` application/json`, `application/json;` and an unterminated parameter → 201 (no spec rule on parameters).
+  R17's severity is medium, not high: a second click works, and no data is lost.
+- **Focus after a re-render (R18, review 2026-11-02).** Spec 02 requires keyboard-only operation but does not say
+  where focus goes after an action. Chosen: keep focus on the same control of the same item when it is still shown,
+  and on the item's 수정 button when an inline edit ends (Enter/Esc). When the item is gone (delete, filter), focus
+  is not moved (a later item can decide). Rejected: leaving focus to the browser (it falls to `<body>`, which forces
+  a keyboard user to restart from the top) and moving focus to the add input (unrelated to the action). Severity
+  medium, not high: every control stays reachable, but each action costs a full Tab walk.
+- **Review scope (review 2026-11-02, R18 pass).** Also behaved per spec 01 and not recorded: GET with
+  `content-type: application/json` and no body → 200; PATCH with `application/json` and an empty body → 400; an
+  uppercase form of an existing UUID → 404 (the server issues lowercase ids, and an id is matched exactly);
+  `filter=active&filter` → 400.
+- **Review scope (review 2026-11-02, R19 pass, no new finding).** Also behaved per spec 01 and not recorded:
+  `DELETE /api/todos/?completed=true` and `GET /api/todos/` → JSON 404 (no bulk delete through the trailing slash);
+  `filter=all%00` → 400; `POST /api/health`, `GET /api`, `POST /` → JSON 404; body `[]` and `{"title":1e400}` → 400.
+  Seen but below this review's medium threshold, so not recorded as items: a PATCH that sets `completed` to its
+  current value still bumps `updatedAt` (spec 01 "변경 시마다 갱신" does not forbid it, and the UI never sends a
+  no-op PATCH), and U+0085 / U+200B titles are accepted because `String.prototype.trim` does not strip them (the
+  server and UI apply the same rule, as spec 01 requires). Re-checked by reading `public/app.js` against R17/R18: no
+  further UI drift found beyond those two open items.
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
