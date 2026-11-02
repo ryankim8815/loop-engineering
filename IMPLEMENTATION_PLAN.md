@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R9 are done (R10–R12 open). Only the manual smoke test is blocked (see "Blocked").
+  review findings R1–R11 are done (R12 open). Only the manual smoke test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
   - 01: a browser opening an unknown path gets the raw **JSON 404**; no HTML error page.
@@ -39,17 +39,6 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-- [ ] **R11. An unrelated re-render discards an open inline editor and its typed text** (medium) — Evidence (review
-      2026-11-02): same happy-dom harness. Seed `[A, B]`. Toggle B with its PATCH held, double-click A's title, type
-      `A 수정됨`, then release B's PATCH. Printed: `S2 editor open before: true value: A 수정됨` →
-      `S2 editor open after B toggle resolves: false A title shown: A`. `commitTodos` → `render()` rebuilds every
-      `<li>` with `replaceChildren`, so the editor is removed without Enter, Esc or blur. The same happens on any
-      resync, a late `loadList`, or the banner path in `perform`. Expected: spec 02 / AC-UI-7 (only Enter saves and only
-      Esc, an empty value or blur cancel). The edit must not end because another item's request finished. Fix: keep
-      the open edit (`{ id, draft }`) in controller state and have `render()` / `renderItem` re-create the focused
-      editor with the draft for that id. If that todo is gone after the render, drop the edit. Add a regression test
-      in `tests/ui.dom.test.ts` (`R11:`) that opens the editor, resolves another item's held PATCH, and expects the
-      editor (with the typed value) to remain and Enter to send `PATCH {title}`. It must fail before the fix.
 - [ ] **R12. "완료 항목 삭제" during an in-flight toggle leaves the list different from the server** (medium) —
       Evidence (review 2026-11-02): a one-line `node --input-type=module -e` script that loads `public/index.html` into
       a happy-dom `Window` (JS loading/evaluation disabled) and calls `startApp` with a fake api. Its `update` applies
@@ -136,11 +125,23 @@ Each evidence command is run from the repo root as
   PUT/OPTIONS/trailing-slash paths (JSON 404), and a JSON body on bulk DELETE (200). A NUL character inside a title
   is accepted and round-trips. Chosen: keep it (spec 01 forbids no code point). Rejected: rejecting control
   characters, a rule the spec does not state.
+- **Edit ends when its item leaves the view (R11).** Spec 02 / AC-UI-7 lists Enter, Esc, empty/unchanged and blur as
+  the only ways an edit ends. It does not say what happens when a filter change or a delete removes the edited item
+  from the list. Chosen: the edit ends with no request, as a blur would (the item is no longer shown or exists).
+  Rejected: keeping a hidden edit open in state, because it would have no visible input and no way to finish it
+  except by the filter coming back. Spec: 02 (filters, AC-UI-6; inline edit, AC-UI-7).
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
 ## Done
 
+- **R11. An unrelated re-render discarded an open inline editor (review 2026-11-02).** `public/app.js` keeps the open
+  edit in `editing` (`{ id, title, draft, element }`). `render()` rebuilds the editor from the draft and restores
+  focus and caret when the editor had focus. The blur handler ignores blur during `render()` (`rendering` flag) and
+  from an editor that has already ended. Test `tests/ui.dom.test.ts` (`R11:`): B's PATCH is held while A's editor
+  has typed text, then released. It failed before the fix (`no inline editor open`). Decision: an edit whose item
+  the filter hides, or that was deleted, ends with no request (see "Edit ends when its item leaves the view (R11)").
+  `npm run check` is green (214 tests).
 - **R10. Out-of-order PATCH responses left the checkbox opposite to the server (review 2026-11-02).** `public/app.js`
   `mergeUpdated(list, updated)` replaces a todo with a PATCH response only when `updatedAt` is not older than the
   local copy (`Date.parse`). `setCompleted` and the edit `commit` use it. Test `tests/ui.dom.test.ts` (`R10:`): two

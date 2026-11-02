@@ -811,6 +811,57 @@ describe('a resync that overlaps an add (R9)', () => {
   });
 });
 
+describe('an open inline editor survives another item’s response (R11)', () => {
+  // Item B is toggled and its PATCH is held. While it is held the user opens an editor on A and
+  // types. Releasing B's response re-renders the whole list. Before the fix that render removed
+  // A's editor and restored its title, so the typed text was lost without Enter, Esc or blur.
+  it('R11: the editor and its typed text stay open, and Enter still saves it', async () => {
+    const itemA: Todo = { ...existing, id: '22222222-2222-4222-8222-222222222222', title: 'A' };
+    const itemB: Todo = { ...existing, id: '33333333-3333-4333-8333-333333333333', title: 'B' };
+    loadIndexBody();
+    const server = createFakeServer([itemA, itemB]);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let heldPatch = false;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'PATCH' || heldPatch) return server.fetch(input, init);
+      heldPatch = true;
+      const response = await server.fetch(input, init);
+      await gate;
+      return response;
+    }) as typeof fetch;
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    itemFor(document, 'B').querySelector<HTMLInputElement>('.todo-toggle')?.click();
+    await settle();
+    titleSpan(document, 'A').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await settle();
+    const editor = editorIn(document);
+    editor.value = 'A 수정됨';
+    editor.dispatchEvent(new Event('input'));
+
+    release();
+    await started;
+    await settle();
+
+    const after = editorIn(document);
+    expect(after.value).toBe('A 수정됨');
+
+    after.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await settle();
+    const patches = writes(server.requests).filter((request) => request.method === 'PATCH');
+    expect(patches.at(-1)).toEqual({
+      method: 'PATCH',
+      url: `/api/todos/${itemA.id}`,
+      body: { title: 'A 수정됨' },
+    });
+    expect(listTitles(document)).toEqual(['A 수정됨', 'B']);
+  });
+});
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flush();

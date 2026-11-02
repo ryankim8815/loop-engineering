@@ -81,6 +81,16 @@ export function startApp({ document, window, api }) {
   /** @type {Todo[]} */
   let todos = [];
 
+  // The open inline edit (AC-UI-7), kept here rather than in the DOM, so that any re-render
+  // rebuilds the editor with the same draft. `element` is the editor that is currently shown.
+  // `null` means no edit is open. Another item's response must not end an edit (R11).
+  /** @type {{ id: string, title: string, draft: string, element?: HTMLInputElement } | null} */
+  let editing = null;
+
+  // True only while render() replaces the list. Removing the focused editor can fire blur,
+  // and that blur is not the user leaving the editor, so it must not cancel the edit.
+  let rendering = false;
+
   // Counts local changes the server has accepted. A list response that started before the
   // latest change may not include it, so it is fetched again rather than trusted (R5).
   let changes = 0;
@@ -148,7 +158,26 @@ export function startApp({ document, window, api }) {
   let filter = parseFilterFromHash(window.location.hash);
 
   function render() {
-    list.replaceChildren(...filterTodos(todos, filter).map(renderItem));
+    const visible = filterTodos(todos, filter);
+    // An edit whose item is hidden by the filter or gone ends without a request, as a blur
+    // would (its item cannot be reached any more).
+    const previous = editing?.element;
+    const hadFocus = previous !== undefined && document.activeElement === previous;
+    const caret = hadFocus ? [previous.selectionStart, previous.selectionEnd] : undefined;
+    if (editing && !visible.some((todo) => todo.id === editing?.id)) {
+      editing = null;
+    }
+    rendering = true;
+    try {
+      list.replaceChildren(...visible.map(renderItem));
+    } finally {
+      rendering = false;
+    }
+    // Keep the typing position when the editor is rebuilt under the user's cursor.
+    if (hadFocus && editing?.element && caret) {
+      editing.element.focus();
+      editing.element.setSelectionRange(caret[0], caret[1]);
+    }
     remaining.textContent = `${countRemaining(todos)}개 남음`;
     renderFilterLinks();
   }
@@ -213,66 +242,73 @@ export function startApp({ document, window, api }) {
       removeTodo(todo.id);
     });
 
-    item.append(checkbox, title, edit, remove);
+    const titleNode = editing?.id === todo.id ? createEditor(todo) : title;
+    item.append(checkbox, titleNode, edit, remove);
     return item;
   }
 
-  // Replaces the title with an edit input (AC-UI-7). Enter commits, Esc and blur cancel.
-  // `finished` makes the first outcome win. Removing the editor can fire a blur, and that
-  // blur must not cancel or send a second action after Enter/Esc already did.
-  // The item is looked up by id, not captured, because an earlier blur may have re-rendered
-  // the list before this runs (for example, a double-click on a different item).
-  function startEdit(id) {
-    const todo = todos.find((t) => t.id === id);
-    const item = [...list.children].find((li) => li.dataset.id === id);
-    const titleSpan = item?.querySelector('.todo-title');
-    if (!todo || !titleSpan) {
-      return;
-    }
-
+  // Builds the edit input for `todo` (AC-UI-7). Enter commits, Esc and blur cancel, and each
+  // ends the edit with no request when it is not a save. Once the edit has ended, `editing`
+  // no longer points at this input, so a later key or blur from it does nothing. That is what
+  // stops a blur from removing the editor from sending a second action.
+  function createEditor(todo) {
     const editor = document.createElement('input');
     editor.type = 'text';
     editor.className = 'todo-edit';
-    editor.value = todo.title;
+    editor.value = editing?.draft ?? todo.title;
     editor.setAttribute('aria-label', `제목 수정: ${todo.title}`);
-    let finished = false;
+    if (editing) editing.element = editor;
 
-    function cancel() {
-      if (finished) return;
-      finished = true;
-      render();
-    }
-
-    async function commit() {
-      if (finished) return;
-      finished = true;
-      const result = resolveEdit(todo.title, editor.value);
-      if (result.action === 'cancel') {
-        render();
-        return;
-      }
-      await perform(async () => {
-        const updated = await api.update(todo.id, { title: result.value });
-        commitTodos(mergeUpdated(todos, updated));
-      });
-    }
-
+    editor.addEventListener('input', () => {
+      if (editing?.element === editor) editing.draft = editor.value;
+    });
     editor.addEventListener('keydown', (event) => {
       // Enter during IME composition confirms a syllable; it must not commit (as in add).
-      if (event.isComposing) return;
+      if (event.isComposing || editing?.element !== editor) return;
       if (event.key === 'Enter') {
         event.preventDefault();
-        commit();
+        commit(editor);
       } else if (event.key === 'Escape') {
         event.preventDefault();
         cancel();
       }
     });
-    editor.addEventListener('blur', cancel);
+    editor.addEventListener('blur', () => {
+      if (!rendering && editing?.element === editor) cancel();
+    });
+    return editor;
+  }
 
-    titleSpan.replaceWith(editor);
-    editor.focus();
-    editor.select();
+  // Opens the edit for `id`. The item is looked up by id at call time, because an earlier
+  // blur may have re-rendered the list before a double-click lands.
+  function startEdit(id) {
+    const todo = todos.find((t) => t.id === id);
+    if (!todo || !filterTodos(todos, filter).some((t) => t.id === id)) {
+      return;
+    }
+    editing = { id, title: todo.title, draft: todo.title };
+    render();
+    editing?.element?.focus();
+    editing?.element?.select();
+  }
+
+  function cancel() {
+    editing = null;
+    render();
+  }
+
+  async function commit(editor) {
+    const { id, title } = editing;
+    editing = null;
+    const result = resolveEdit(title, editor.value);
+    if (result.action === 'cancel') {
+      render();
+      return;
+    }
+    await perform(async () => {
+      const updated = await api.update(id, { title: result.value });
+      commitTodos(mergeUpdated(todos, updated));
+    });
   }
 
   // Waits for the server before changing local state, so the list always mirrors what
