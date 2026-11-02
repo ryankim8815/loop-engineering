@@ -49,7 +49,7 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
 Browser evidence (R27, R28) comes from the manual smoke test of 2026-11-02 (see Done): `npm start` on a scratch
 `DB_PATH`, opened in a real Chromium tab.
 
-- [ ] **R27. Text typed while an add is in flight is appended to the submitted title, and the input is never
+- [x] **R27. Text typed while an add is in flight is appended to the submitted title, and the input is never
       cleared** (medium) — Evidence: in the browser, `window.fetch` was wrapped to hold every POST for 1.5 s, then
       `장보기` + Enter, then `설거지` typed at once → during the POST the input read `장보기설거지`; after the 201 the
       list showed `장보기` and the input still read `장보기설거지`. On localhost the same happened with no delay
@@ -59,7 +59,7 @@ Browser evidence (R27, R28) comes from the manual smoke test of 2026-11-02 (see 
       AC-UI-4 (a successful add clears the input) together with the R14 decision (text typed meanwhile is kept).
       Fix: on success, if the input still starts with the submitted text, remove that prefix and keep the rest;
       otherwise leave the input alone. Add a regression test that fails before the fix: hold the POST, add `A`, type
-      `B` while pending, release, assert the input is exactly `B` and the list ends with `A`.
+      `B` while pending, release, assert the input is exactly `B` and the list ends with `A`. Moved to Done.
 - [ ] **R28. A long unbroken title squeezes 수정/삭제 into one-character-wide buttons** (low) — Evidence: in the
       browser at 375 px and at desktop width, a todo whose title is 200 emoji renders its 수정 and 삭제 buttons 28 px
       wide and 38 px tall with the label wrapped to two lines (`수⏎정`, `삭⏎제`); other rows' buttons are 39 × 22 px.
@@ -116,6 +116,11 @@ Browser evidence (R27, R28) comes from the manual smoke test of 2026-11-02 (see 
   수정, because the server has not accepted the new text yet and the list must mirror the server (spec 02). Rejected:
   showing the typed text optimistically, which would show a title the server may refuse (the 400 path would then
   need to revert it).
+- **Success removes the submitted prefix (R27, autonomous run 2026-11-02).** Spec 02 / AC-UI-4 says a successful add
+  clears the input, and R14 keeps text typed while the POST is pending. Chosen: on success, if the input starts with
+  the submitted text, remove that prefix and keep the rest; otherwise leave the input alone. This supersedes the R14
+  rule "clear only if unchanged". Rejected: clearing the whole input (drops text the user typed, the R14 problem),
+  and leaving the input as it is (the submitted title stays and the new text merges into it). Spec: 02 (AC-UI-4).
 - **R5 fix shape.** Chosen: discard stale list responses (version counter) in `public/app.js`. Rejected: disabling
   all controls until the first load finishes, which adds UI states spec 02 does not describe.
 - **Static 412/416 (R7, review 2026-11-02).** Spec 01 lists only 400/404/500. Chosen: client-caused 4xx from static
@@ -267,6 +272,16 @@ Browser evidence (R27, R28) comes from the manual smoke test of 2026-11-02 (see 
   a neighbour (R18, R20); filters 전체/진행 중/완료 with the hash and `aria-current`; 완료 항목 삭제; page reload and
   server restart keep the data; `GET /nope` with and without `Accept: text/html` → JSON 404; no horizontal scroll at
   375 px. Failed: R27 (in-flight add) and R28 (long-title buttons), recorded under Review findings.
+
+- **R27. Text typed during an in-flight add was merged into the submitted title (review 2026-11-02).** `public/app.js`
+  `submit()` now removes the submitted text from the front of the input on success (`startsWith` / `slice`), and keeps
+  whatever the user typed after it. The old rule cleared the input only when it still equalled the submitted text, so
+  any typing during the POST left the submitted title behind. Tests in `tests/ui.dom.test.ts` (`R27:` ×2): hold the
+  POST, add `A`, type `AB` while pending, release, and the input is `B` with the list `['A']`; then a replaced input
+  (`C`) is kept whole. Red before the fix (`AB` instead of `B`); the replaced-input case passes both before and after,
+  because it guards the "leave alone" branch. Decision: see "Success removes the submitted prefix (R27)". The in-flight
+  display still shows the merged text until the POST resolves (that is the state the user typed in, not a new defect).
+  `npm run check` is green (243 tests).
 
 - **R24. An inline edit stayed on screen, and ignored input, until its PATCH resolved (review 2026-11-02).**
   `public/app.js` `commit()` now computes the edit's outcome, clears `editing`, sets `focusTarget` to the item's 수정

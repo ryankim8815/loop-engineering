@@ -465,16 +465,17 @@ export function startApp({ document, window, api }) {
     // cleared before the POST, so it also goes when the POST fails (R21).
     hint.textContent = '';
     // On failure the typed title stays in the input, so the user can retry.
-    // The input is cleared only if it still holds what was submitted. Text typed while the
-    // POST was in flight belongs to the user, not to this add (R14).
+    // On success the submitted text is removed from the front of the input, and whatever the user
+    // typed after it stays (R14, R27). If the input no longer starts with the submitted text, the
+    // user replaced it, so the input is left alone.
     const submitted = input.value;
     adding = true;
     try {
       await perform(async () => {
         const created = await api.create(result.value);
         commitTodos(upsertTodo(todos, created));
-        if (input.value === submitted) {
-          input.value = '';
+        if (input.value.startsWith(submitted)) {
+          input.value = input.value.slice(submitted.length);
         }
       });
     } finally {

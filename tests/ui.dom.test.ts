@@ -741,6 +741,56 @@ describe('duplicate add while a create is in flight (R8)', () => {
     expect(listTitles(document)).toEqual(['우유 사기', '빵 사기']);
   });
 
+  // Before the fix, submit() cleared the input only when it still equalled the submitted text.
+  // Text typed after the submitted title (here `B`, after `A`) made the input `AB`, so the
+  // submitted title stayed behind and the new text was merged into it (R27). On success only the
+  // submitted prefix goes, and the rest is the user's text, which stays.
+  it('R27: text typed after the submitted title survives the add, and the title is removed', async () => {
+    const { server, fetchImpl, release } = holdFirstPost();
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    const input = document.getElementById('new-title') as HTMLInputElement;
+    input.value = 'A';
+    (document.getElementById('add-button') as HTMLButtonElement).click();
+    await settle();
+    input.value = 'AB';
+    release();
+    await started;
+    await settle();
+
+    expect(listTitles(document)).toEqual(['A']);
+    expect(input.value).toBe('B');
+
+    (document.getElementById('add-button') as HTMLButtonElement).click();
+    await settle();
+    expect(
+      server.requests.filter((request) => request.method === 'POST').map((request) => request.body),
+    ).toEqual([{ title: 'A' }, { title: 'B' }]);
+    expect(listTitles(document)).toEqual(['A', 'B']);
+    expect(input.value).toBe('');
+  });
+
+  // The user replaced the submitted text while the POST was in flight, so the input no longer
+  // starts with it. Nothing is removed, because the text is entirely the user's (R27).
+  it('R27: text that replaced the submitted title while the POST was in flight is kept whole', async () => {
+    const { fetchImpl, release } = holdFirstPost();
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    const input = document.getElementById('new-title') as HTMLInputElement;
+    input.value = 'A';
+    (document.getElementById('add-button') as HTMLButtonElement).click();
+    await settle();
+    input.value = 'C';
+    release();
+    await started;
+    await settle();
+
+    expect(listTitles(document)).toEqual(['A']);
+    expect(input.value).toBe('C');
+  });
+
   // The hint describes an empty-title attempt. Once a valid title is submitted, the hint must go,
   // even when the POST then fails: the banner reports the failure, and the hint would contradict
   // the title the user typed (R21).
