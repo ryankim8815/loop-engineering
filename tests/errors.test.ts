@@ -130,4 +130,23 @@ describe('error envelope', () => {
       error: { code: 'VALIDATION_ERROR', message: expect.any(String) },
     });
   });
+
+  // Fastify rejects a malformed percent-encoded URL before routing, so the
+  // normal error handler never runs. Without frameworkErrors the body was
+  // Fastify's own { error: 'Bad Request', code: 'FST_ERR_BAD_URL', ... } shape,
+  // which breaks spec 01's rule that every error uses the one envelope.
+  it.each(['/%', '/%E0%A4%A', '/api/todos/%', '/api/todos/%E0%A4%A'])(
+    'R1: malformed percent-encoding %s returns the 400 VALIDATION_ERROR envelope',
+    async (url) => {
+      app = buildTestApp();
+      const res = await app.inject({ method: 'GET', url });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.headers['content-type']).toMatch(/application\/json/);
+      expect(res.json()).toEqual({
+        error: { code: 'VALIDATION_ERROR', message: expect.any(String) },
+      });
+      expect(res.body).not.toContain('FST_ERR');
+    },
+  );
 });

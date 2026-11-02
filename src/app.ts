@@ -25,7 +25,22 @@ declare module 'fastify' {
 // App factory shared by the server entry point and the tests. Tests call
 // buildApp() and drive it with app.inject(), so no real port is bound.
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: options.logger ?? false });
+  // One sender for every error. frameworkErrors covers failures Fastify raises
+  // before routing (e.g. a malformed percent-encoded URL), which would otherwise
+  // bypass setErrorHandler and return Fastify's own error shape.
+  const sendError: Parameters<FastifyInstance['setErrorHandler']>[0] = (error, request, reply) => {
+    const { statusCode, body } = toErrorResponse(error);
+    if (statusCode >= 500) {
+      // Log the real error server-side; it is never sent to the client.
+      request.log.error({ err: error }, 'unhandled request error');
+    }
+    reply.code(statusCode).send(body);
+  };
+
+  const app = Fastify({
+    logger: options.logger ?? false,
+    frameworkErrors: sendError,
+  });
 
   const db = openDatabase(options.dbPath ?? process.env.DB_PATH ?? DEFAULT_DB_PATH);
   app.decorate('todos', new TodoRepository(db));
@@ -47,14 +62,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.register(fastifyStatic, { root: PUBLIC_DIR, prefix: '/' });
 
   // Every error response uses the { error: { code, message } } envelope (spec 01).
-  app.setErrorHandler((error: unknown, request, reply) => {
-    const { statusCode, body } = toErrorResponse(error);
-    if (statusCode >= 500) {
-      // Log the real error server-side; it is never sent to the client.
-      request.log.error({ err: error }, 'unhandled request error');
-    }
-    reply.code(statusCode).send(body);
-  });
+  app.setErrorHandler(sendError);
 
   // Unknown paths get the same JSON 404 whether or not they are under /api and
   // whatever Accept header the browser sends.

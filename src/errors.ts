@@ -34,9 +34,12 @@ export function errorEnvelope(code: string, message: string): ErrorEnvelope {
   return { error: { code, message } };
 }
 
-// Fastify reports body-parsing failures with stable `code`s. We map them to
+// Fastify reports request-level client failures with stable `code`s. We map them to
 // 400 VALIDATION_ERROR (spec 01) instead of Fastify's default 400/415 shapes.
-const BODY_ERROR_MESSAGES = new Map<string, string>([
+// FST_ERR_BAD_URL is raised by the router before any route runs (malformed
+// percent-encoding such as `/%`), so it only reaches us via frameworkErrors.
+const REQUEST_ERROR_MESSAGES = new Map<string, string>([
+  ['FST_ERR_BAD_URL', '잘못된 URL 형식입니다.'],
   ['FST_ERR_CTP_INVALID_JSON_BODY', '요청 본문이 올바른 JSON이 아닙니다.'],
   ['FST_ERR_CTP_EMPTY_JSON_BODY', 'JSON 요청 본문이 비어 있습니다.'],
   [
@@ -66,9 +69,9 @@ export function toErrorResponse(error: unknown): ErrorResponse {
 
   const fastifyCode = readProp(error, 'code');
   if (typeof fastifyCode === 'string') {
-    const bodyMessage = BODY_ERROR_MESSAGES.get(fastifyCode);
-    if (bodyMessage !== undefined) {
-      return { statusCode: 400, body: errorEnvelope('VALIDATION_ERROR', bodyMessage) };
+    const requestMessage = REQUEST_ERROR_MESSAGES.get(fastifyCode);
+    if (requestMessage !== undefined) {
+      return { statusCode: 400, body: errorEnvelope('VALIDATION_ERROR', requestMessage) };
     }
   }
 
