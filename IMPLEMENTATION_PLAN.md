@@ -46,6 +46,28 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
 `node --input-type=module -e "import { Window } from 'happy-dom'; import { readFileSync } from 'node:fs'; import { createApi } from './public/api.js'; import { startApp } from './public/app.js'; const w = new Window({ url: 'http://x.local/' }); const d = w.document; d.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(readFileSync('public/index.html','utf8'))[1].replace(/<script[\s\S]*?<\/script>/g,''); <STUB fetch f>; await startApp({ document: d, window: w, api: createApi(f) }); <STEPS>; await w.happyDOM.close();"`.
 (R19 was used for a review pass with no finding, so numbering continues at R20.)
 
+Browser evidence (R27, R28) comes from the manual smoke test of 2026-11-02 (see Done): `npm start` on a scratch
+`DB_PATH`, opened in a real Chromium tab.
+
+- [ ] **R27. Text typed while an add is in flight is appended to the submitted title, and the input is never
+      cleared** (medium) — Evidence: in the browser, `window.fetch` was wrapped to hold every POST for 1.5 s, then
+      `장보기` + Enter, then `설거지` typed at once → during the POST the input read `장보기설거지`; after the 201 the
+      list showed `장보기` and the input still read `장보기설거지`. On localhost the same happened with no delay
+      (`우유 사기` + Enter, then `책 읽기` typed at once → input `우유 사기책 읽기`). `submit()` leaves the submitted
+      text in the input while the POST is pending, and the R14 rule then skips the clear because the input changed.
+      The user has to delete the old title by hand, or adds the merged text as a new todo. Expected: spec 02 /
+      AC-UI-4 (a successful add clears the input) together with the R14 decision (text typed meanwhile is kept).
+      Fix: on success, if the input still starts with the submitted text, remove that prefix and keep the rest;
+      otherwise leave the input alone. Add a regression test that fails before the fix: hold the POST, add `A`, type
+      `B` while pending, release, assert the input is exactly `B` and the list ends with `A`.
+- [ ] **R28. A long unbroken title squeezes 수정/삭제 into one-character-wide buttons** (low) — Evidence: in the
+      browser at 375 px and at desktop width, a todo whose title is 200 emoji renders its 수정 and 삭제 buttons 28 px
+      wide and 38 px tall with the label wrapped to two lines (`수⏎정`, `삭⏎제`); other rows' buttons are 39 × 22 px.
+      `.todo-title` is `flex: 1 1 auto` with `overflow-wrap: anywhere`, and the buttons may shrink. Expected: spec 02
+      (controls stay usable at 375 px). Fix: give the row's buttons `flex: none` (or `white-space: nowrap`) so only
+      the title shrinks. Add a regression test that fails before the fix: assert the stylesheet keeps the item
+      buttons from shrinking (`flex-shrink: 0` / `flex: none`) — layout itself is not measurable in happy-dom.
+
 
 ### REST API
 
@@ -60,10 +82,7 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
 
 ## Blocked (needs human)
 
-- **Manual smoke test (DoD #3).** Run `npm start` and open http://127.0.0.1:3000 (the spec default; the older
-  note said localhost:3000). Confirm the list loads, add/toggle/edit/delete/filter/clear-completed work, and an
-  unknown path returns JSON 404. Why: AGENTS.md forbids background servers in headless `dontAsk` mode, so the
-  agent cannot run it. Do **not** edit `README.md` (agent-protected); note any README drift here instead.
+(none — the manual smoke test was run on 2026-11-02, see Done)
 
 ## Open questions
 
@@ -239,6 +258,15 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **Manual smoke test (DoD #3), 2026-11-02, interactive session with a real browser.** `npm start` with
+  `PORT=3100` and a scratch `DB_PATH`, opened in a Chromium tab. Passed: list load; add with Enter and with 추가;
+  empty add shows "제목을 입력하세요." with no request; toggle (mouse and Space); inline edit via double-click, via
+  수정, and via keyboard only, saved with Enter and cancelled with Esc; deleting another item while an editor is open
+  takes one click (R17 confirmed in a real browser, not only happy-dom); focus stays on the same control or moves to
+  a neighbour (R18, R20); filters 전체/진행 중/완료 with the hash and `aria-current`; 완료 항목 삭제; page reload and
+  server restart keep the data; `GET /nope` with and without `Accept: text/html` → JSON 404; no horizontal scroll at
+  375 px. Failed: R27 (in-flight add) and R28 (long-title buttons), recorded under Review findings.
 
 - **R24. An inline edit stayed on screen, and ignored input, until its PATCH resolved (review 2026-11-02).**
   `public/app.js` `commit()` now computes the edit's outcome, clears `editing`, sets `focusTarget` to the item's 수정
