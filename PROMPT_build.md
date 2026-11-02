@@ -6,6 +6,8 @@
 
 2. Implement that one item completely, including tests that prove its acceptance criteria. Use only 1 subagent for running builds and tests.
 
+   If the item is a review finding (`R<n>`), first write a test that reproduces it. If that test already passes against the current code, the finding is not reproducible: change no code, keep the test only if it adds coverage, and check the item off as "not reproduced: <what you tried>".
+
 3. Run `npm run check` (lint + typecheck + test). If it fails, fix the cause and run it again until it passes. If an unrelated test is failing, fixing it is part of this iteration.
 
 4. Update @IMPLEMENTATION_PLAN.md: check off the item, move it to "Done", and add anything new you discovered (bugs, missing pieces) as new unchecked items.

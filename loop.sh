@@ -13,7 +13,7 @@
 #   RALPH_TOTAL_BUDGET_USD=10   stop once this run has spent this much (checked after each iteration)
 #   RALPH_MAX_NO_PROGRESS=3     stop after N build iterations in a row without a new commit
 #   RALPH_AUTONOMOUS=1          no human in the loop: append PROMPT_autonomy.md (used by cycle.sh)
-#   RALPH_REVIEW_MIN_SEVERITY=  review records only findings at or above low|medium|high
+#   RALPH_REVIEW_MIN_SEVERITY=  review mode records only findings at or above low|medium|high (default: all)
 #   RALPH_CHECK_CMD=...         command that must pass before a build COMPLETE is accepted (default: npm run check)
 #   RALPH_PUSH=1                git push after every iteration
 #
@@ -72,17 +72,24 @@ if [[ "$MODE" == review ]]; then
     "Edit(./src/**)" "Edit(./public/**)" "Edit(./tests/**)" "Edit(./AGENTS.md)"
     "Bash(git add *)" "Bash(git commit *)" "Bash(rm *)" "Bash(npm install *)")
 fi
-# The autonomy rules ride on the system prompt, so the PROMPT_*.md files stay the same for supervised runs.
+# Run-time rules ride on the system prompt, so the PROMPT_*.md files stay the same across runs.
+extra=""
 AUTONOMY=off
 if [[ "${RALPH_AUTONOMOUS:-0}" == 1 ]]; then
   [[ -f "$AUTONOMY_FILE" ]] || { echo "error: $AUTONOMY_FILE not found" >&2; exit 66; }
   extra="$(cat "$AUTONOMY_FILE")"
-  if [[ "$MODE" == review && -n "${RALPH_REVIEW_MIN_SEVERITY:-}" ]]; then
-    extra+=$'\n\n'"- This review records only findings of severity ${RALPH_REVIEW_MIN_SEVERITY} or higher (low < medium < high)."
-  fi
-  CLAUDE_ARGS+=(--append-system-prompt "$extra")
-  AUTONOMY="on${RALPH_REVIEW_MIN_SEVERITY:+ (review ≥ $RALPH_REVIEW_MIN_SEVERITY)}"
+  AUTONOMY=on
 fi
+SEVERITY=all
+if [[ "$MODE" == review && -n "${RALPH_REVIEW_MIN_SEVERITY:-}" ]]; then
+  case "$RALPH_REVIEW_MIN_SEVERITY" in
+    low | medium | high) ;;
+    *) echo "error: RALPH_REVIEW_MIN_SEVERITY must be low, medium or high" >&2; exit 64 ;;
+  esac
+  extra+="${extra:+$'\n\n'}This review records only findings of severity ${RALPH_REVIEW_MIN_SEVERITY} or higher (low < medium < high)."
+  SEVERITY="≥ $RALPH_REVIEW_MIN_SEVERITY"
+fi
+[[ -n "$extra" ]] && CLAUDE_ARGS+=(--append-system-prompt "$extra")
 [[ -n "${RALPH_BUDGET_USD:-}" ]] && CLAUDE_ARGS+=(--max-budget-usd "$RALPH_BUDGET_USD")
 
 BRANCH="$(git branch --show-current)"
@@ -133,6 +140,7 @@ echo "model:       $MODEL"
 echo "subagent:    $SUBAGENT_MODEL"
 echo "permissions: $PERMISSIONS"
 echo "autonomous:  $AUTONOMY"
+[[ "$MODE" == review ]] && echo "severity:    $SEVERITY"
 echo "budget:      $([[ -n $TOTAL_BUDGET ]] && echo "\$$TOTAL_BUDGET total" || echo none)"
 echo "branch:      $BRANCH"
 echo "stop:        ./stop.sh  (graceful, or touch $STOP_FILE)  ·  Ctrl+C (immediate)"

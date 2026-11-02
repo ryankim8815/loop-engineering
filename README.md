@@ -205,6 +205,7 @@ Huntley의 플레이북 구조를 이 프로젝트에 맞게 다듬었습니다.
 
 - 가장 중요한 미완료 항목 **하나만** 선택 → 구현 + 테스트 → `npm run check` 통과까지 수정 → 계획 갱신 → 커밋(푸시 금지).
 - 빌드·테스트 실행은 **서브에이전트 1개만** — 병렬 테스트 실행이 서로 충돌하는 것을 방지.
+- review가 기록한 `R` 항목은 **재현 테스트부터** 작성. 테스트가 이미 통과하면 오탐으로 보고 코드를 고치지 않은 채 "not reproduced"로 닫음.
 - 테스트를 건너뛰거나 약화시키지 말 것, 플레이스홀더 금지, 스펙·프롬프트 수정 금지.
 - 모든 항목이 끝나고 검증되면 `<promise>COMPLETE</promise>`를 출력 → `loop.sh`가 이를 감지해 종료.
 
@@ -284,7 +285,7 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 | `RALPH_TOTAL_BUDGET_USD` | (없음) | 이번 실행 전체의 지출 상한. 반복이 끝날 때마다 확인 |
 | `RALPH_MAX_NO_PROGRESS` | `3` | 서킷 브레이커 임계값 |
 | `RALPH_AUTONOMOUS` | `0` | `1`이면 자율 규칙 적용 (보통 `cycle.sh`가 설정) |
-| `RALPH_REVIEW_MIN_SEVERITY` | (없음) | review가 이 심각도(`low`·`medium`·`high`) 이상만 기록. 자율 모드에서만 적용 |
+| `RALPH_REVIEW_MIN_SEVERITY` | (없음 = 모든 심각도) | review 모드에서 이 심각도(`low`·`medium`·`high`) 이상만 기록. 자율 모드와 상관없이 적용되며, 다른 값은 시작 전에 거부 (exit 64) |
 | `RALPH_CHECK_CMD` | `npm run check` | build COMPLETE를 인정하기 전에 실행하는 검증 명령 |
 | `RALPH_YOLO` | `0` | `1`이면 `--dangerously-skip-permissions` — **격리된 컨테이너에서만** |
 | `RALPH_PUSH` | `0` | `1`이면 반복마다 `git push` |
@@ -450,7 +451,7 @@ RALPH_TOTAL_BUDGET_USD=10 RALPH_CYCLE_BRANCH=1 ./cycle.sh 3 10 1
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
 | `RALPH_TOTAL_BUDGET_USD` | (없음) | 사이클 전체 지출 상한. 남은 예산을 각 `loop.sh` 호출에 넘김 |
-| `RALPH_REVIEW_MIN_SEVERITY` | `medium` | 2세트째부터 review가 이 심각도 이상만 기록 (사소한 지적이 끝없이 이어지는 것을 방지) |
+| `RALPH_REVIEW_MIN_SEVERITY` | `medium` | 2세트째부터 review가 이 심각도 이상만 기록 (사소한 지적이 끝없이 이어지는 것을 방지). 1세트는 이 값과 상관없이 모든 심각도 |
 | `RALPH_CYCLE_BRANCH` | `0` | `1`이면 시작할 때 새 브랜치를 만들어 그 위에서 진행 |
 
 그 밖의 변수(`RALPH_MODEL` 등)는 `loop.sh`에 그대로 전달됩니다.
@@ -474,7 +475,8 @@ RALPH_TOTAL_BUDGET_USD=10 RALPH_CYCLE_BRANCH=1 ./cycle.sh 3 10 1
 | --- | --- |
 | 사람이 해야만 끝나는 항목 (예: 수동 스모크 테스트) | `## Blocked (needs human)`로 옮기고 다음 항목 진행. 완료 조건에서는 해결된 것으로 취급 |
 | 모호한 스펙 | 스펙과 모순되지 않는 가장 보수적인 해석을 구현하고, `## Decisions (pending human review)`에 근거와 버린 대안을 기록 |
-| 리뷰 오탐 | build가 R 항목을 맡으면 재현 테스트부터 작성. 재현되지 않으면 코드를 고치지 않고 "not reproduced"로 닫음 |
+
+리뷰 오탐 처리(재현 테스트부터 작성)는 자율 모드와 상관없이 `PROMPT_build.md`에 들어 있어 항상 적용됩니다.
 
 끝나면 세트별 표(build 결과·커밋 수·review 결과·새 R 항목 수·비용)와 함께 **Blocked·Decisions 섹션을 출력**합니다. 병합하기 전에 사람이 이 목록부터 검토하세요.
 

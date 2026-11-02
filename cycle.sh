@@ -69,7 +69,8 @@ run_phase() {
   # loop.sh clears a leftover STOP file on start, so honour one that arrived between phases here.
   if [[ -f "$STOP_FILE" ]]; then rm -f "$STOP_FILE"; echo "stop requested via $STOP_FILE"; phase_exit=20; return; fi
   rm -f "$LAST_RUN"
-  env "${env[@]}" ./loop.sh "$mode" "$n"
+  # Drop an inherited severity floor: set 1 reviews every severity, later sets pass their own.
+  env -u RALPH_REVIEW_MIN_SEVERITY "${env[@]}" ./loop.sh "$mode" "$n"
   phase_exit=$?
   if [[ -f "$LAST_RUN" ]]; then
     add_cost "$(sed -n 's/^cost=//p' "$LAST_RUN")"
