@@ -715,6 +715,49 @@ describe('duplicate add while a create is in flight (R8)', () => {
   });
 });
 
+describe('out-of-order PATCH responses (R10)', () => {
+  // Two toggles of one item are in flight. The server applies each change at once, but the
+  // responses are held and released in reverse order. Before the fix the older response,
+  // which arrived last, overwrote the newer local state, so the checkbox disagreed with the server.
+  it('R10: the older PATCH response does not overwrite the newer one', async () => {
+    loadIndexBody();
+    const server = createFakeServer([existing]);
+    let patches = 0;
+    const held: (() => void)[] = [];
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'PATCH') return server.fetch(input, init);
+      const index = patches;
+      patches += 1;
+      const response = await server.fetch(input, init);
+      await new Promise<void>((resolve) => {
+        held[index] = resolve;
+      });
+      return response;
+    }) as typeof fetch;
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.click();
+    await settle();
+    itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.click();
+    await settle();
+    expect(patches).toBe(2);
+
+    held[1]?.();
+    await settle();
+    held[0]?.();
+    await settle();
+    await started;
+
+    expect(server.todos[0]?.completed).toBe(false);
+    expect(
+      itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.checked,
+    ).toBe(false);
+    expect(itemFor(document, 'existing').classList.contains('completed')).toBe(false);
+    expect(remainingText(document)).toBe('1개 남음');
+  });
+});
+
 describe('a resync that overlaps an add (R9)', () => {
   // The POST for `새 항목` is held after the server has stored it. A failed toggle of `existing`
   // then resyncs, and that GET already contains the new todo. Before the fix, releasing the POST

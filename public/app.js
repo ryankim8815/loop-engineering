@@ -36,6 +36,22 @@ function upsertTodo(list, todo) {
 }
 
 /**
+ * Replaces the todo with the same id by the server copy `updated`, unless the local copy is
+ * newer. Two PATCHes for one item can be answered in either order, so an older response that
+ * arrives last must not overwrite a newer one (R10). The server's updatedAt strictly increases
+ * on every change (spec 01), so comparing it tells the two copies apart.
+ *
+ * @param {Todo[]} list
+ * @param {Todo} updated
+ * @returns {Todo[]}
+ */
+function mergeUpdated(list, updated) {
+  return list.map((t) =>
+    t.id === updated.id && Date.parse(updated.updatedAt) >= Date.parse(t.updatedAt) ? updated : t,
+  );
+}
+
+/**
  * The message for the error banner. An ApiError carries the spec 01 envelope message.
  * Anything else is a failed fetch (network down), since the API client does not wrap it.
  *
@@ -237,7 +253,7 @@ export function startApp({ document, window, api }) {
       }
       await perform(async () => {
         const updated = await api.update(todo.id, { title: result.value });
-        commitTodos(todos.map((t) => (t.id === updated.id ? updated : t)));
+        commitTodos(mergeUpdated(todos, updated));
       });
     }
 
@@ -264,7 +280,7 @@ export function startApp({ document, window, api }) {
   function setCompleted(id, completed) {
     return perform(async () => {
       const updated = await api.update(id, { completed });
-      commitTodos(todos.map((todo) => (todo.id === updated.id ? updated : todo)));
+      commitTodos(mergeUpdated(todos, updated));
     });
   }
 

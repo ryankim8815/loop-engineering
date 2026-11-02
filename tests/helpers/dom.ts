@@ -63,6 +63,7 @@ export function createFakeServer(seed: Todo[] = []): FakeServer {
     },
   };
   let counter = 0;
+  let patchCounter = 0;
 
   server.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
@@ -112,7 +113,11 @@ export function createFakeServer(seed: Todo[] = []): FakeServer {
     const todo = match ? server.todos.find((t) => t.id === match[1]) : undefined;
     if (todo && method === 'PATCH') {
       Object.assign(todo, body);
-      return json(todo);
+      // Spec 01: updatedAt strictly increases on every change, so a late response can be told
+      // apart from a newer copy (R10).
+      patchCounter += 1;
+      todo.updatedAt = new Date(Date.UTC(2026, 0, 2, 0, 0, patchCounter)).toISOString();
+      return json({ ...todo });
     }
     if (todo && method === 'DELETE') {
       server.todos = server.todos.filter((t) => t !== todo);

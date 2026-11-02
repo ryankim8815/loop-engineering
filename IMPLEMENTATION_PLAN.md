@@ -39,19 +39,6 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-- [ ] **R10. Out-of-order PATCH responses leave the checkbox opposite to the server** (medium) — Evidence (review
-      2026-11-02): a `node --input-type=module -e` script that loads `public/index.html`'s body into a happy-dom
-      `Window` and calls `startApp` with a fake api whose `update` applies the patch to the server list at once but
-      holds each response. Seed `[A]` (active), click A's checkbox twice (two PATCHes:
-      `[{"completed":true},{"completed":false}]`), then release the 2nd response before the 1st. Printed:
-      `S1 UI checked: true li.completed: true counter: 0개 남음 | server completed: false`. Two requests in flight
-      can finish in either order over separate connections. The response that arrives last wins in `setCompleted` /
-      edit `commit`, even when it is older. Expected: spec 02 (the toggle shows the server's completed state; the
-      UI matches the server), and spec 01 (`updatedAt` strictly increases on every change, so the newer copy can be
-      identified). Fix: when merging an `update` response, replace the local todo only if
-      `updated.updatedAt >= local.updatedAt`. Otherwise keep the local copy, which is newer. Add a regression test in
-      `tests/ui.dom.test.ts` (`R10:`) that holds two PATCHes for one item, releases them in reverse order, and expects
-      the checkbox and counter to match the server. It must fail before the fix.
 - [ ] **R11. An unrelated re-render discards an open inline editor and its typed text** (medium) — Evidence (review
       2026-11-02): same happy-dom harness. Seed `[A, B]`. Toggle B with its PATCH held, double-click A's title, type
       `A 수정됨`, then release B's PATCH. Printed: `S2 editor open before: true value: A 수정됨` →
@@ -153,6 +140,16 @@ Each evidence command is run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R10. Out-of-order PATCH responses left the checkbox opposite to the server (review 2026-11-02).** `public/app.js`
+  `mergeUpdated(list, updated)` replaces a todo with a PATCH response only when `updatedAt` is not older than the
+  local copy (`Date.parse`). `setCompleted` and the edit `commit` use it. Test `tests/ui.dom.test.ts` (`R10:`): two
+  toggles of one item, responses released in reverse order. It failed before the fix (checkbox `true`, server
+  `false`). Harness change: `tests/helpers/dom.ts` fake PATCH now bumps `updatedAt` (strictly increasing, per spec
+  01) and returns a copy; before, it kept `updatedAt`, so no response could be told apart from a newer copy.
+  Decision: the older response is dropped, and the local copy (already newer) is kept. Rejected: rejecting all
+  responses while another request is in flight, which would add UI states spec 02 does not describe.
+  `npm run check` is green (213 tests).
 
 - **R9. A resync overlapping an add showed the new todo twice (review 2026-11-02).** `public/app.js` `submit()` now
   commits the created todo with `upsertTodo` (replace by id, append only if missing), not `[...todos, created]`.
