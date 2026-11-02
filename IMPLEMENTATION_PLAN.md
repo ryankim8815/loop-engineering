@@ -257,6 +257,15 @@ Browser evidence (R27, R28) comes from the manual smoke test of 2026-11-02 (see 
   while its toggle PATCH is still pending and the server handles the DELETE first, the PATCH returns a 404 banner. The
   resync then fixes the list. The UI cannot know the order the server handles requests in, and the screen ends up
   matching the server, so this stays below medium.
+- **Review scope (review 2026-11-02, R29 pass, no new finding).** Re-read specs 01/02, all of `src/*` and `public/*`,
+  and the AC-UI-5/6 tests (they assert requests, classes, counter, hash and `aria-current`, not only the code's own
+  output). These `app.inject()` probes behaved per spec 01 and are not recorded: `POST /api/todos?filter=bogus` → 201
+  and `GET /api/todos/:id?filter=bogus` → 200 (`filter` is defined only for the list, so it is an unknown param
+  elsewhere and ignored); PATCH `{"title":null}` → 400; `/%2e/index.html` → 200 `index.html` (normalizes inside
+  `public/`, not traversal); `DELETE ?completed=true&completed=true` → 400; `DELETE ?completed=%74rue` → 200;
+  `/api/health?x=1` → 200. Seen by reading but not recorded (below medium, the screen ends matching the server): a
+  checkbox click on an item whose DELETE is in flight flips the checkbox with no request and no re-render
+  (`setCompleted` returns early), until the DELETE removes the item or its failure re-renders it.
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
