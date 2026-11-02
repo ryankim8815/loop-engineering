@@ -348,13 +348,18 @@ export function startApp({ document, window, api }) {
       return;
     }
     // On failure the typed title stays in the input, so the user can retry.
+    // The input is cleared only if it still holds what was submitted. Text typed while the
+    // POST was in flight belongs to the user, not to this add (R14).
+    const submitted = input.value;
     adding = true;
     try {
       await perform(async () => {
         const created = await api.create(result.value);
         commitTodos(upsertTodo(todos, created));
-        input.value = '';
-        hint.textContent = '';
+        if (input.value === submitted) {
+          input.value = '';
+          hint.textContent = '';
+        }
       });
     } finally {
       adding = false;

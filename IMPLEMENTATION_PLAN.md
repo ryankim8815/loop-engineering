@@ -39,16 +39,6 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-- [ ] **R14. An add that resolves late wipes the title the user typed meanwhile** (medium) — Evidence: a node
-      script with happy-dom (`new Window()`, index.html body, `startApp` with a fetch that holds the POST): type
-      `우유 사기`, click 추가, set the input to `빵 사기` while the POST is held, release → printed
-      `before release: "빵 사기"` / `after release: "" list: ["우유 사기"]`. The new text is lost without notice (and
-      R8's guard has already ignored an Enter on it). Expected: spec 02 "추가되고 입력창이 비워진다" clears the
-      submitted title, not text typed after it. Fix: in `public/app.js` `submit()`, on success clear the input
-      (and the hint) only if `input.value` still equals the raw value that was submitted. Add a DOM regression test
-      in `tests/ui.dom.test.ts` (`R14:`, held POST as in R8) that fails before the fix; keep the R8 test that
-      expects `''` when nothing was typed.
-
 - [ ] **R15. After a failed first load, a successful action hides the banner but the list stays out of sync**
       (medium) — Evidence: a node script with happy-dom (`new Window()`, index.html body, `startApp` with a fetch
       whose first GET rejects with `TypeError('fetch failed')` and a server seeded with `seed1`, `seed2`), then
@@ -172,10 +162,20 @@ Each evidence command is run from the repo root as
   `/.git/config` → JSON 404; `filter=` → 400; an empty or `multipart/form-data` Content-Type on POST → 400.
   `charset=utf-16le` and `content-encoding: gzip` on a plain JSON body are accepted (201). Chosen: keep that, because
   spec 01 sets no charset or encoding rule.
+- **Clear add input only if unchanged (R14, review 2026-11-02).** Spec 02 says a successful add clears the input, but
+  it does not say what happens to text typed while the POST is pending. Chosen: clear only when the input still
+  holds the submitted text, so the user's new text stays. Rejected: always clearing (loses typed text with no
+  notice), and disabling the input during the POST (adds a visible UI state spec 02 does not describe).
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R14. An add that resolved late wiped the title typed meanwhile (review 2026-11-02).** `public/app.js` `submit()`
+  records the submitted text and clears the input (and hint) on success only if the input still holds it. Test
+  `tests/ui.dom.test.ts` (`R14:`, POST held): text typed while the POST was in flight survives, and a later add sends
+  it. It failed before the fix (`''` instead of `'빵 사기'`). The R8 "cleared when nothing was typed" behaviour is
+  unchanged. Decision: see "Clear add input only if unchanged (R14)". `npm run check` is green (221 tests).
 
 - **R13. A body-less DELETE with a `Content-Type` header was refused (review 2026-11-02).** `src/app.ts` adds an
   `onRequest` hook that removes `content-type`, `content-length` and `transfer-encoding` from DELETE requests before

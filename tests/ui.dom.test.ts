@@ -713,6 +713,33 @@ describe('duplicate add while a create is in flight (R8)', () => {
     expect(writes(server.requests)).toHaveLength(2);
     expect(listTitles(document)).toEqual(['우유 사기']);
   });
+
+  // Before the fix, submit() cleared the input after the POST resolved, whatever it held by
+  // then. Text typed while the POST was in flight was lost with no error shown (R14).
+  it('R14: text typed while the POST is in flight survives the add resolving', async () => {
+    const { server, fetchImpl, release } = holdFirstPost();
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    const input = document.getElementById('new-title') as HTMLInputElement;
+    input.value = '우유 사기';
+    (document.getElementById('add-button') as HTMLButtonElement).click();
+    await settle();
+    input.value = '빵 사기';
+    release();
+    await started;
+    await settle();
+
+    expect(listTitles(document)).toEqual(['우유 사기']);
+    expect(input.value).toBe('빵 사기');
+
+    (document.getElementById('add-button') as HTMLButtonElement).click();
+    await settle();
+    expect(
+      server.requests.filter((request) => request.method === 'POST').map((request) => request.body),
+    ).toEqual([{ title: '우유 사기' }, { title: '빵 사기' }]);
+    expect(listTitles(document)).toEqual(['우유 사기', '빵 사기']);
+  });
 });
 
 describe('out-of-order PATCH responses (R10)', () => {
