@@ -92,6 +92,16 @@ Each evidence command is run from the repo root as
 - **Duplicate add guard (R8, review 2026-11-02).** Spec 02 does not mention in-flight adds. Chosen: silently ignore a
   submit while a POST is pending (no request, no hint). Rejected: disabling the input/button, which adds visible UI
   states spec 02 does not describe; and allowing duplicates, which turns one user action into two todos.
+- **R5 retry shape (review 2026-11-02).** The plan allowed "drop the stale response" or "re-fetch". Chosen: re-fetch
+  while the change counter moved during the request. Rejected: dropping the response. Reason: dropping it would
+  leave the list without items that were never added this session (a seed of 3 items plus one add would show only
+  the add).
+- **R6 test shape.** Chosen: export `resolveDbPath` from `src/app.ts` and unit-test it. Rejected: a behavioural
+  test that writes to the default `data/` directory during the test run. Reason: that touches the repo's data
+  folder. The export is the only change to the public surface.
+- **R4 invariant.** `TodoRepository.create` throws if the row is missing right after its own insert. Chosen: fail
+  loudly, which surfaces as a 500, rather than return a value the write did not store. Rejected: returning the
+  input as a fallback, which is the bug R4 describes.
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
