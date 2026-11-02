@@ -85,6 +85,11 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.todo-list li button {
+  /* R28: only the title may shrink; without this a long title squeezed 수정/삭제 to one character wide. */
+  flex: none;
+}
+
 .todo-list li.completed .todo-title {
   text-decoration: line-through;
   color: #6e6e73;

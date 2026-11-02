@@ -170,4 +170,25 @@ describe('accessibility and responsive layout', () => {
     const maxWidthSelectors = selectorsDeclaring(/max-width:\s*100%/);
     expect(maxWidthSelectors).toEqual(expect.arrayContaining(['input', 'button']));
   });
+
+  it('R28: a long title cannot shrink the item buttons (rule matches the rendered 수정/삭제)', async () => {
+    // Without this rule, `.todo-title` (flex: 1 1 auto) and the buttons (default flex-shrink: 1)
+    // share the row, and a 200-emoji title squeezed 수정/삭제 to one-character-wide buttons with
+    // the label wrapped per character. The fix keeps the buttons at their content width.
+    const { document } = await mountApp([
+      {
+        id: '00000000-0000-4000-8000-000000000001',
+        title: '😀'.repeat(200),
+        completed: false,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+    const buttons = [...document.querySelectorAll<HTMLElement>('#todo-list > li > button')];
+    expect(buttons.map((b) => b.className)).toEqual(['todo-edit-button', 'todo-delete']);
+    const noShrink = selectorsDeclaring(/flex:\s*none|flex-shrink:\s*0/);
+    for (const button of buttons) {
+      expect(noShrink.some((selector) => button.matches(selector))).toBe(true);
+    }
+  });
 });

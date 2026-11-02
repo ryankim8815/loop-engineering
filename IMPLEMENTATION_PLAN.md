@@ -60,13 +60,7 @@ Browser evidence (R27, R28) comes from the manual smoke test of 2026-11-02 (see 
       Fix: on success, if the input still starts with the submitted text, remove that prefix and keep the rest;
       otherwise leave the input alone. Add a regression test that fails before the fix: hold the POST, add `A`, type
       `B` while pending, release, assert the input is exactly `B` and the list ends with `A`. Moved to Done.
-- [ ] **R28. A long unbroken title squeezes 수정/삭제 into one-character-wide buttons** (low) — Evidence: in the
-      browser at 375 px and at desktop width, a todo whose title is 200 emoji renders its 수정 and 삭제 buttons 28 px
-      wide and 38 px tall with the label wrapped to two lines (`수⏎정`, `삭⏎제`); other rows' buttons are 39 × 22 px.
-      `.todo-title` is `flex: 1 1 auto` with `overflow-wrap: anywhere`, and the buttons may shrink. Expected: spec 02
-      (controls stay usable at 375 px). Fix: give the row's buttons `flex: none` (or `white-space: nowrap`) so only
-      the title shrinks. Add a regression test that fails before the fix: assert the stylesheet keeps the item
-      buttons from shrinking (`flex-shrink: 0` / `flex: none`) — layout itself is not measurable in happy-dom.
+- [x] **R28. A long unbroken title squeezed 수정/삭제 into one-character-wide buttons** (low) — moved to Done.
 
 
 ### REST API
@@ -121,6 +115,10 @@ Browser evidence (R27, R28) comes from the manual smoke test of 2026-11-02 (see 
   the submitted text, remove that prefix and keep the rest; otherwise leave the input alone. This supersedes the R14
   rule "clear only if unchanged". Rejected: clearing the whole input (drops text the user typed, the R14 problem),
   and leaving the input as it is (the submitted title stays and the new text merges into it). Spec: 02 (AC-UI-4).
+- **Item buttons do not shrink (R28, autonomous run 2026-11-02).** Spec 02 requires controls usable at 375 px but does
+  not name a CSS mechanism. Chosen: `flex: none` on the row's buttons, so only the title shrinks. Rejected:
+  `white-space: nowrap` on the buttons, which stops the label wrapping but still lets the flex row squeeze the
+  button width. Spec: 02 (accessibility and responsive layout).
 - **R5 fix shape.** Chosen: discard stale list responses (version counter) in `public/app.js`. Rejected: disabling
   all controls until the first load finishes, which adds UI states spec 02 does not describe.
 - **Static 412/416 (R7, review 2026-11-02).** Spec 01 lists only 400/404/500. Chosen: client-caused 4xx from static
@@ -263,6 +261,13 @@ Browser evidence (R27, R28) comes from the manual smoke test of 2026-11-02 (see 
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R28. A long title squeezed the item buttons to one character wide (review 2026-11-02).** `public/styles.css`
+  adds `.todo-list li button { flex: none; }`, so only `.todo-title` shrinks. Test `tests/ui.a11y.dom.test.ts`
+  (`R28:`): a 200-emoji title renders `수정` and `삭제`, and the stylesheet must match both buttons with a
+  no-shrink rule. Red before the fix (`expected false to be true`), green after. Layout is not measurable in
+  happy-dom, so the test checks the rule, as the R28 item asked. Decision: see "Item buttons do not shrink (R28)".
+  `npm run check` is green (244 tests).
 
 - **Manual smoke test (DoD #3), 2026-11-02, interactive session with a real browser.** `npm start` with
   `PORT=3100` and a scratch `DB_PATH`, opened in a Chromium tab. Passed: list load; add with Enter and with 추가;

@@ -21,6 +21,8 @@ Keep this file short and operational (how to build, run and test). Progress belo
 - `src/app.ts` exports `buildApp()`; tests use `app.inject()` with `DB_PATH=':memory:'`.
 - Persistence uses built-in `node:sqlite` (`DatabaseSync`).
 - `tests/toolchain.smoke.test.ts` verifies the environment itself — keep it.
+- `tests/ui.a11y.dom.test.ts` parses `public/styles.css` with a naive `selector { body }` regex. Never put a CSS
+  comment between rules (the comment becomes part of the next selector). Put it inside the rule body.
 - DOM tests (`// @vitest-environment happy-dom`) cannot use `import.meta.url` (it is not a file URL there). Resolve
   files from `process.cwd()` instead, as `tests/helpers/dom.ts` does.
 
