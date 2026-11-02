@@ -237,13 +237,6 @@ export function startApp({ document, window, api }) {
       setCompleted(todo.id, checkbox.checked);
     });
 
-    const title = document.createElement('span');
-    title.className = 'todo-title';
-    title.textContent = todo.title;
-    title.addEventListener('dblclick', () => {
-      startEdit(todo.id);
-    });
-
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.className = 'todo-edit-button';
@@ -262,9 +255,25 @@ export function startApp({ document, window, api }) {
       removeTodo(todo.id);
     });
 
-    const titleNode = editing?.id === todo.id ? createEditor(todo) : title;
+    const titleNode = editing?.id === todo.id ? createEditor(todo) : renderTitle(todo);
     item.append(checkbox, titleNode, edit, remove);
     return item;
+  }
+
+  /**
+   * The read-only title span of an item. Double-click opens the inline editor.
+   *
+   * @param {Todo} todo
+   * @returns {HTMLSpanElement}
+   */
+  function renderTitle(todo) {
+    const title = document.createElement('span');
+    title.className = 'todo-title';
+    title.textContent = todo.title;
+    title.addEventListener('dblclick', () => {
+      startEdit(todo.id);
+    });
+    return title;
   }
 
   // Builds the edit input for `todo` (AC-UI-7). Enter commits, Esc and blur cancel, and each
@@ -294,9 +303,24 @@ export function startApp({ document, window, api }) {
       }
     });
     editor.addEventListener('blur', () => {
-      if (!rendering && editing?.element === editor) cancel();
+      if (!rendering && editing?.element === editor) cancelOnBlur(editor);
     });
     return editor;
+  }
+
+  // Blur cancels the edit (AC-UI-7). The focus usually moved to another list control, and a
+  // mousedown on it is still in progress, so the rest of the list must stay in place: only the
+  // editor is swapped back for the title (R17). A full render() would detach that control, and
+  // the click would be lost. If the item is no longer shown, render() is needed to remove it.
+  function cancelOnBlur(editor) {
+    const id = editing?.id;
+    editing = null;
+    const todo = todos.find((t) => t.id === id);
+    if (todo && filterTodos(todos, filter).some((t) => t.id === todo.id) && editor.isConnected) {
+      editor.replaceWith(renderTitle(todo));
+      return;
+    }
+    render();
   }
 
   // Opens the edit for `id`. The item is looked up by id at call time, because an earlier

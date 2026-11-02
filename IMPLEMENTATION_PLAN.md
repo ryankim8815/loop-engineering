@@ -39,20 +39,6 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-- [ ] **R17. Pressing another list control while an inline edit is open destroys the control being pressed**
-      (medium) — Evidence: a `node --input-type=module -e` script built a happy-dom `Window`, loaded the `index.html`
-      body, ran `startApp` with a stub fetch seeded with A and B, opened the editor on A (dblclick), then called
-      `.focus()` on B's `.todo-delete`, `.todo-toggle` and `.todo-edit-button` in turn. A mousedown does the same:
-      focus moves and the editor blurs. → `editor closed: true | pressed control still in DOM: false` for all three.
-      `requests: [ 'GET /api/todos?filter=all' ]`. The blur handler calls `cancel()` → `render()`, which rebuilds every
-      `<li>` (`list.replaceChildren`) between mousedown and mouseup. Browsers send `click` to the common ancestor of the
-      mousedown and mouseup targets, and the mousedown target is now detached, so the user's first click on 삭제 or a
-      checkbox (any item, including the edited one) does nothing. The lost click is real-browser behaviour that
-      happy-dom does not model, so the test should assert detachment. Expected: spec 02 (blur = cancel only;
-      삭제 removes the item and the checkbox toggles it, with one action). Fix: when blur cancels the edit, replace only
-      the editor element with the title span (and clear `editing`) instead of calling `render()`, so the other nodes
-      survive. Add a regression test that fails before the fix: open the edit on A, focus B's 삭제, then assert that the
-      same button element is still `isConnected` and that clicking it sends one `DELETE` for B.
 - [ ] **R18. Keyboard focus is lost to `<body>` after every toggle or inline-edit save** (medium) — Evidence: a
       `node --input-type=module -e` script built a happy-dom `Window`, loaded the `index.html` body, ran `startApp`
       with a stub fetch seeded with T1–T3, focused T2's `.todo-toggle` and called `.click()`, then focused T1's
@@ -198,10 +184,22 @@ Each evidence command is run from the repo root as
   no-op PATCH), and U+0085 / U+200B titles are accepted because `String.prototype.trim` does not strip them (the
   server and UI apply the same rule, as spec 01 requires). Re-checked by reading `public/app.js` against R17/R18: no
   further UI drift found beyond those two open items.
+- **Blur-cancel keeps the rest of the list (R17, review 2026-11-02).** Spec 02 / AC-UI-7 says blur cancels the edit
+  with no request and the original title restored. It does not say how the rest of the list is redrawn. Chosen: blur
+  swaps only the editor back to the title span, so a control the user is pressing (a mousedown in progress) stays in
+  the DOM. Fallback: a full `render()` when the item is no longer shown, because that item's editor has no place to go.
+  Rejected: keeping the full re-render and deferring it to `mouseup` (adds timing logic the spec does not describe).
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R17. Pressing another list control while an inline edit was open lost that press (review 2026-11-02).**
+  `public/app.js` blur now calls `cancelOnBlur(editor)`: it clears `editing` and swaps only the editor for the
+  title span (`renderTitle`, split out of `renderItem`). It falls back to `render()` only when the item is no longer
+  shown. Tests in `tests/ui.dom.test.ts` (`R17:` ×2, focus moved to B's 삭제 and to B's checkbox while A's editor is
+  open): both failed before the fix (B's control detached). Both now pass, and one click sends one DELETE or PATCH.
+  Decision: see "Blur-cancel keeps the rest of the list (R17)". `npm run check` is green (226 tests).
 
 - **R15. A successful action after a failed first load left the list out of sync (review 2026-11-02).** `public/app.js`
   sets `listStale` when `loadList()` fails and clears it when a list fetch succeeds. `perform` re-fetches after a

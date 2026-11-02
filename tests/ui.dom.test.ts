@@ -1049,6 +1049,70 @@ describe('a successful action after a failed first load (R15)', () => {
   });
 });
 
+describe('a list control pressed while an inline edit is open (R17)', () => {
+  // The user opens an editor on A, then presses 삭제 on B. Moving focus blurs A's editor, and the
+  // blur used to cancel with a full re-render. That rebuilt every <li>, so B's button was detached
+  // before the click landed (a real browser sends the click to the common ancestor of the mousedown
+  // and mouseup targets, so the first press was lost). The fix replaces only A's editor.
+  it('R17: pressing 삭제 on another item closes the editor and keeps that button, so one click deletes it', async () => {
+    const itemA: Todo = { ...existing, id: '22222222-2222-4222-8222-222222222222', title: 'A' };
+    const itemB: Todo = { ...existing, id: '33333333-3333-4333-8333-333333333333', title: 'B' };
+    const { document, server } = await mountApp([itemA, itemB]);
+    await settle();
+
+    titleSpan(document, 'A').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await settle();
+    expect(editorIn(document)).toBeTruthy();
+
+    const removeB = itemFor(document, 'B').querySelector<HTMLButtonElement>('.todo-delete');
+    if (!removeB) throw new Error('no 삭제 button for B');
+    removeB.focus();
+    await settle();
+
+    expect(document.querySelector('#todo-list .todo-edit')).toBeNull();
+    expect(removeB.isConnected).toBe(true);
+
+    removeB.click();
+    await settle();
+
+    expect(writes(server.requests)).toEqual([
+      { method: 'DELETE', url: `/api/todos/${itemB.id}`, body: undefined },
+    ]);
+    expect(bannerShown(document)).toBe(false);
+    expect(listTitles(document)).toEqual(['A']);
+  });
+
+  it('R17: pressing another item’s checkbox while an edit is open toggles it with one click', async () => {
+    const itemA: Todo = { ...existing, id: '22222222-2222-4222-8222-222222222222', title: 'A' };
+    const itemB: Todo = { ...existing, id: '33333333-3333-4333-8333-333333333333', title: 'B' };
+    const { document, server } = await mountApp([itemA, itemB]);
+    await settle();
+
+    titleSpan(document, 'A').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await settle();
+
+    const toggleB = itemFor(document, 'B').querySelector<HTMLInputElement>('.todo-toggle');
+    if (!toggleB) throw new Error('no checkbox for B');
+    toggleB.focus();
+    await settle();
+    expect(toggleB.isConnected).toBe(true);
+
+    toggleB.click();
+    await settle();
+
+    expect(writes(server.requests)).toEqual([
+      {
+        method: 'PATCH',
+        url: `/api/todos/${itemB.id}`,
+        body: { completed: true },
+      },
+    ]);
+    expect(itemFor(document, 'B').querySelector<HTMLInputElement>('.todo-toggle')?.checked).toBe(
+      true,
+    );
+  });
+});
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flush();
