@@ -108,4 +108,28 @@ describe('static UI', () => {
     expect(res.json()).toEqual({ error: { code: 'NOT_FOUND', message: expect.any(String) } });
     expect(res.body).not.toContain('"name"');
   });
+
+  // send throws RangeNotSatisfiableError (416) or PreconditionFailedError (412)
+  // for these client headers. Before the fix any client could make the server
+  // answer 500 and log "unhandled request error" with one header. They are
+  // client errors, so they use the 400 VALIDATION_ERROR envelope (see Decisions).
+  it.each([
+    { url: '/index.html', headers: { range: 'bytes=999999-' } },
+    { url: '/', headers: { range: 'bytes=999999-' } },
+    { url: '/styles.css', headers: { range: 'bytes=5-1' } },
+    { url: '/index.html', headers: { 'if-match': '"nope"' } },
+    {
+      url: '/index.html',
+      headers: { 'if-unmodified-since': 'Mon, 01 Jan 1990 00:00:00 GMT' },
+    },
+  ])('R7: static request $url with $headers returns 400 VALIDATION_ERROR, not 500', async (c) => {
+    app = buildApp({ dbPath: ':memory:' });
+    const res = await app.inject({ method: 'GET', url: c.url, headers: c.headers });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.json()).toEqual({
+      error: { code: 'VALIDATION_ERROR', message: expect.any(String) },
+    });
+  });
 });

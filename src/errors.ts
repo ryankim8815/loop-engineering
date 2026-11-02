@@ -5,6 +5,7 @@
 
 export const NOT_FOUND_MESSAGE = '요청한 리소스를 찾을 수 없습니다.';
 export const INTERNAL_MESSAGE = '서버 오류가 발생했습니다.';
+const CLIENT_REQUEST_MESSAGE = '잘못된 요청입니다.';
 
 export class AppError extends Error {
   readonly statusCode: number;
@@ -87,7 +88,7 @@ export function toErrorResponse(error: unknown): ErrorResponse {
       statusCode: 400,
       body: errorEnvelope(
         'VALIDATION_ERROR',
-        typeof message === 'string' ? message : '잘못된 요청입니다.',
+        typeof message === 'string' ? message : CLIENT_REQUEST_MESSAGE,
       ),
     };
   }
@@ -98,6 +99,13 @@ export function toErrorResponse(error: unknown): ErrorResponse {
   const statusCode = readProp(error, 'statusCode');
   if (statusCode === 403 || statusCode === 404) {
     return { statusCode: 404, body: errorEnvelope('NOT_FOUND', NOT_FOUND_MESSAGE) };
+  }
+
+  // Other client-side statuses from the framework (e.g. 412 or 416 from static
+  // serving for If-Match / Range headers) are the caller's fault. Spec 01 defines
+  // only 400/404/500, so they become 400 VALIDATION_ERROR and are not logged.
+  if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+    return { statusCode: 400, body: errorEnvelope('VALIDATION_ERROR', CLIENT_REQUEST_MESSAGE) };
   }
 
   return { statusCode: 500, body: errorEnvelope('INTERNAL_ERROR', INTERNAL_MESSAGE) };

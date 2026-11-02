@@ -63,18 +63,6 @@ Each evidence command is run from the repo root as
       restart; `DB_PATH` default `./data/todos.db`). Fix: in `buildApp`, treat an empty/whitespace `DB_PATH` (and
       `dbPath`) as unset and fall back to the default (see Decisions). Add a regression test that fails before the
       fix (`DB_PATH=''` set via `vi.stubEnv` in a temp cwd or by asserting the resolved path).
-- [ ] **R7. Range / conditional request headers on static files return 500 INTERNAL_ERROR** (medium) — Evidence
-      (review 2026-11-02, `onError` hook added to show the cause): `<ARGS>` =
-      `{ method: 'GET', url: '/index.html', headers: { range: 'bytes=999999-' } }` (also `/` and
-      `/styles.css` with `range: 'bytes=5-1'`) → `500 {"error":{"code":"INTERNAL_ERROR",...}}`, cause
-      `RangeNotSatisfiableError` (statusCode 416). `{ ..., headers: { 'if-match': '"nope"' } }` and
-      `{ ..., headers: { 'if-unmodified-since': 'Mon, 01 Jan 1990 00:00:00 GMT' } }` → `500`, cause
-      `PreconditionFailedError` (412). Any client can make the server log "unhandled request error" with one header.
-      Expected: spec 01 오류 형식 — 500 is only "그 외 서버 오류"; these are client errors. Fix: in
-      `toErrorResponse`, map a non-AppError whose numeric `statusCode` is 4xx (other than the R2 403/404 case) to
-      `400 VALIDATION_ERROR` without logging it as a server error (see Decisions), or register `@fastify/static` with
-      `acceptRanges: false` for the Range half. Add a regression test that fails before the fix (both headers → 400
-      envelope, not 500). Unrelated cases stay 500 (a thrown plain `Error` without `statusCode`).
 - [ ] **R8. Double-clicking 추가 (or Enter twice) creates duplicate todos** (low) — Evidence:
       `node --input-type=module -e "import { Window } from 'happy-dom'; import { readFileSync } from 'node:fs'; const win = new Window({ url: 'http://127.0.0.1:3000/' }); win.document.write(readFileSync('public/index.html','utf8').replace(/<script[^>]*><\/script>/,'')); const { startApp } = await import('./public/app.js'); let n = 0; const posts = []; const api = { list: async () => [], create: async (title) => { posts.push(title); await new Promise(r => setTimeout(r, 5)); n++; return { id: '11111111-1111-4111-8111-11111111111' + n, title, completed: false, createdAt: 'x', updatedAt: 'x' }; } }; await startApp({ document: win.document, window: win, api }); win.document.getElementById('new-title').value = '우유 사기'; win.document.getElementById('add-button').click(); win.document.getElementById('add-button').click(); await new Promise(r => setTimeout(r, 30)); console.log('POSTs:', posts.length, [...win.document.querySelectorAll('.todo-title')].map(e => e.textContent)); await win.happyDOM.close();"`
       → `POSTs: 2 [ '우유 사기', '우유 사기' ]`. `submit()` clears the input only after the POST resolves, so a
@@ -141,6 +129,11 @@ Each evidence command is run from the repo root as
 
 ## Done
 
+- **R7. Range / If-Match headers on static files returned 500 (review 2026-11-02).** `toErrorResponse` maps any other
+  non-AppError with a 4xx `statusCode` (416 for Range, 412 for If-Match / If-Unmodified-Since) to 400
+  `VALIDATION_ERROR`, after R2's 403/404 rule. These are not logged. Plain errors without `statusCode` stay 500
+  (covered by the existing `/__test/boom` test). Tests in `tests/ui.static.test.ts` (5 cases) failed before the fix.
+  Decision: see "Status codes for R1–R3" and "Static 412/416 (R7)". `npm run check` is green (199 tests).
 - **R3. Oversized bodies and Content-Length mismatches returned 500 (review 2026-11-02).** `src/errors.ts`
   `REQUEST_ERROR_MESSAGES` now includes `FST_ERR_CTP_BODY_TOO_LARGE` and `FST_ERR_CTP_INVALID_CONTENT_LENGTH` →
   400 `VALIDATION_ERROR`. Regression tests in `tests/errors.test.ts` (2.0 MB body; `content-length: 5` with a longer
