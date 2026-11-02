@@ -17,7 +17,8 @@ Confirmed by reading the repo, not assumed:
   `lib` (so DOM types are available to tests), and includes `public/**/*.js` with `checkJs: false`.
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
-- Coverage: **0 of 20** ACs (AC-API-1…12, AC-UI-1…8).
+- Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
+  review findings R1–R8 are done. Only the manual smoke test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
   - 01: a browser opening an unknown path gets the raw **JSON 404**; no HTML error page.
@@ -38,14 +39,6 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-- [ ] **R4. A title with a lone surrogate is returned differently by POST and by GET** (low) — Evidence: `<ARGS>` =
-      `{ method: 'POST', url: '/api/todos', headers: { 'content-type': 'application/json' }, payload: '{"title":"a\\ud800b"}' }`
-      → `201` with title `"a\ud800b"`, but a following `GET /api/todos/<id>` returns `"a�b"` (SQLite stores
-      UTF-8, so the lone surrogate becomes U+FFFD). The UI keeps the POST copy in memory, so its state drifts from the
-      server until the next reload. Same path applies to PATCH. Expected: spec 01 data model (the stored Todo is the
-      one returned) and spec 02 (UI state matches the server). Fix: have `TodoRepository.create`/`update` return the
-      row re-read with `get(id)` instead of the in-memory object (see Decisions). Add a regression test that fails
-      before the fix (POST body title === GET title for `"a\ud800b"`).
 ### REST API
 
 ### Web UI
@@ -104,6 +97,11 @@ Each evidence command is run from the repo root as
 
 ## Done
 
+- **R4. A lone-surrogate title differed between POST/PATCH and GET (review 2026-11-02).** `TodoRepository.create` and
+  `update` now return the row read back with `get(id)`, not the in-memory object. The stored text (SQLite UTF-8) is
+  what every response shows. Test `tests/lone-surrogate.api.test.ts` (POST and PATCH) failed before the fix (the
+  created title kept the surrogate and the GET returned the replacement form). Decision: "Lone-surrogate titles
+  (R4)" stays as recorded (titles are still accepted). `npm run check` is green (211 tests).
 - **R6. An empty `DB_PATH` used a throwaway database (review 2026-11-02).** `src/app.ts` `resolveDbPath(explicit)`:
   explicit `dbPath`, then `DB_PATH`, then `data/todos.db`. An empty or whitespace-only value counts as unset.
   `new DatabaseSync('')` opens a temporary database that is deleted on close, which is why data vanished on restart.

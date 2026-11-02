@@ -47,21 +47,24 @@ export class TodoRepository {
     return row === undefined ? undefined : toTodo(row);
   }
 
+  // Write methods return the row read back from SQLite, not the value they were given.
+  // SQLite stores TEXT as UTF-8, so some strings change on the way in (a lone UTF-16
+  // surrogate becomes U+FFFD). Returning the input would make the write response differ
+  // from what GET returns later, and the UI would then disagree with the server (R4).
   create(title: string): Todo {
     const now = new Date().toISOString();
-    const todo: Todo = {
-      id: randomUUID(),
-      title,
-      completed: false,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const id = randomUUID();
     this.#db
       .prepare(
         'INSERT INTO todos (id, title, completed, created_at, updated_at) VALUES (?, ?, 0, ?, ?)',
       )
-      .run(todo.id, todo.title, todo.createdAt, todo.updatedAt);
-    return todo;
+      .run(id, title, now, now);
+    const stored = this.get(id);
+    if (stored === undefined) {
+      // Cannot happen with a working database: the row was inserted just above.
+      throw new Error(`todo ${id} is missing right after insert`);
+    }
+    return stored;
   }
 
   // Returns undefined when the id does not exist (the route maps that to 404).
@@ -70,16 +73,13 @@ export class TodoRepository {
     if (current === undefined) {
       return undefined;
     }
-    const next: Todo = {
-      ...current,
-      title: patch.title ?? current.title,
-      completed: patch.completed ?? current.completed,
-      updatedAt: nextUpdatedAt(current.updatedAt),
-    };
+    const title = patch.title ?? current.title;
+    const completed = patch.completed ?? current.completed;
+    const updatedAt = nextUpdatedAt(current.updatedAt);
     this.#db
       .prepare('UPDATE todos SET title = ?, completed = ?, updated_at = ? WHERE id = ?')
-      .run(next.title, next.completed ? 1 : 0, next.updatedAt, id);
-    return next;
+      .run(title, completed ? 1 : 0, updatedAt, id);
+    return this.get(id);
   }
 
   remove(id: string): boolean {
