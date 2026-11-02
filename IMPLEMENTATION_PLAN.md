@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R12 are done (R12 red-before-fix not run, see Done). Only the manual smoke test is blocked (see "Blocked").
+  review findings R1–R14 and R16 are done (R12 red-before-fix not run, see Done); R15 is open. Only the manual smoke test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
   - 01: a browser opening an unknown path gets the raw **JSON 404**; no HTML error page.
@@ -51,18 +51,6 @@ Each evidence command is run from the repo root as
       the banner; no timer or retry loop). Add a DOM regression test in `tests/ui.dom.test.ts` (`R15:`,
       `failNext('GET', 'network')` before start, seed 2 items, add one, expect 3 titles and `3개 남음`) that fails
       before the fix. Decision: see "Resync after a failed first load (R15)".
-
-- [ ] **R16. Double-clicking 삭제 shows a false error banner** (medium) — Evidence: a node script with happy-dom
-      (`new Window()`, index.html body, `startApp` with a fetch that forwards to `buildApp({ dbPath: ':memory:' })`
-      via `app.inject()` and holds each DELETE response; one seeded todo `우유 사기`), then `btn.click(); btn.click()`
-      on `.todo-delete` before releasing → printed `DELETE -> 204` / `DELETE -> 404` / `banner: "요청한 리소스를 찾을
-      수 없습니다." hidden: false list: []`. The delete worked, but the user sees an error for it. The same happens
-      when the item's checkbox is toggled while its DELETE is in flight (PATCH → 404). Expected: spec 02 "삭제 버튼 →
-      해당 항목이 사라진다". One delete action must not report an API error. Fix: in `public/app.js`, keep a set of
-      ids whose DELETE is in flight. `removeTodo` ignores an id already in the set, and `setCompleted`/`startEdit`
-      ignore it too. Remove the id in `finally`. Add a DOM regression test in `tests/ui.dom.test.ts` (`R16:`, DELETE
-      held, two clicks → one DELETE request, banner hidden, list empty) that fails before the fix. Decision: see
-      "In-flight delete guard (R16)".
 
 ### REST API
 
@@ -170,6 +158,13 @@ Each evidence command is run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R16. Double-clicking 삭제 showed a false error banner (review 2026-11-02).** `public/app.js` keeps a `deleting` set
+  of ids whose DELETE is in flight. `removeTodo` ignores an id already in the set, and `setCompleted` and `startEdit`
+  ignore it too. The id is removed in a `finally` once the DELETE settles. Tests in `tests/ui.dom.test.ts` (`R16:` ×2,
+  DELETE held): a second click on 삭제 sends one DELETE, and a toggle while the DELETE is in flight sends no PATCH.
+  Both failed before the fix (a second DELETE, and a PATCH). Both now pass with no banner and an empty list.
+  Decision: see "In-flight delete guard (R16)". `npm run check` is green (223 tests).
 
 - **R14. An add that resolved late wiped the title typed meanwhile (review 2026-11-02).** `public/app.js` `submit()`
   records the submitted text and clears the input (and hint) on success only if the input still holds it. Test

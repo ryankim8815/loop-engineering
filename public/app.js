@@ -91,6 +91,11 @@ export function startApp({ document, window, api }) {
   // and that blur is not the user leaving the editor, so it must not cancel the edit.
   let rendering = false;
 
+  // Ids whose DELETE is in flight (R16). A second click on 삭제 must not send a second DELETE,
+  // and a toggle or edit of the same item would only get a 404 for the item already removed.
+  /** @type {Set<string>} */
+  const deleting = new Set();
+
   // Counts local changes the server has accepted. A list response that started before the
   // latest change may not include it, so it is fetched again rather than trusted (R5).
   let changes = 0;
@@ -283,7 +288,7 @@ export function startApp({ document, window, api }) {
   // blur may have re-rendered the list before a double-click lands.
   function startEdit(id) {
     const todo = todos.find((t) => t.id === id);
-    if (!todo || !filterTodos(todos, filter).some((t) => t.id === id)) {
+    if (deleting.has(id) || !todo || !filterTodos(todos, filter).some((t) => t.id === id)) {
       return;
     }
     editing = { id, title: todo.title, draft: todo.title };
@@ -313,7 +318,10 @@ export function startApp({ document, window, api }) {
 
   // Waits for the server before changing local state, so the list always mirrors what
   // the server accepted. Local state is replaced by the server's copy (its updatedAt).
+  // An item whose DELETE is in flight is ignored (R16), so the server's 404 for the item it
+  // already removed is not shown as an error.
   function setCompleted(id, completed) {
+    if (deleting.has(id)) return;
     return perform(async () => {
       const updated = await api.update(id, { completed });
       commitTodos(mergeUpdated(todos, updated));
@@ -321,8 +329,14 @@ export function startApp({ document, window, api }) {
   }
 
   function removeTodo(id) {
+    if (deleting.has(id)) return;
     return perform(async () => {
-      await api.remove(id);
+      deleting.add(id);
+      try {
+        await api.remove(id);
+      } finally {
+        deleting.delete(id);
+      }
       commitTodos(todos.filter((todo) => todo.id !== id));
     });
   }

@@ -958,6 +958,66 @@ describe('clear completed while a toggle is in flight (R12)', () => {
   });
 });
 
+describe('a repeated action while a DELETE is in flight (R16)', () => {
+  // Every DELETE is applied by the server at once, and only its response is held until release().
+  // Before the fix, a second click on 삭제 (or a toggle of the same item) sent a request for an item
+  // the server had already removed. The server answered 404, so one user action showed the error
+  // "요청한 리소스를 찾을 수 없습니다." even though the delete had worked.
+  async function holdDeletes(seed: Todo[]) {
+    loadIndexBody();
+    const server = createFakeServer(seed);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'DELETE') return server.fetch(input, init);
+      const response = await server.fetch(input, init);
+      await gate;
+      return response;
+    }) as typeof fetch;
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+    return { document, server, started, release: () => release() };
+  }
+
+  it('R16: a second click on 삭제 while the DELETE is in flight sends no second request and shows no error', async () => {
+    const { document, server, started, release } = await holdDeletes([existing]);
+    const remove = itemFor(document, 'existing').querySelector<HTMLButtonElement>('.todo-delete');
+    remove?.click();
+    remove?.click();
+    await settle();
+
+    expect(writes(server.requests)).toEqual([
+      { method: 'DELETE', url: `/api/todos/${existing.id}`, body: undefined },
+    ]);
+    release();
+    await started;
+    await settle();
+
+    expect(bannerShown(document)).toBe(false);
+    expect(listTitles(document)).toEqual([]);
+  });
+
+  it('R16: toggling the item while its DELETE is in flight sends no PATCH and shows no error', async () => {
+    const { document, server, started, release } = await holdDeletes([existing]);
+    itemFor(document, 'existing').querySelector<HTMLButtonElement>('.todo-delete')?.click();
+    await settle();
+    itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle')?.click();
+    await settle();
+
+    expect(writes(server.requests)).toEqual([
+      { method: 'DELETE', url: `/api/todos/${existing.id}`, body: undefined },
+    ]);
+    release();
+    await started;
+    await settle();
+
+    expect(bannerShown(document)).toBe(false);
+    expect(listTitles(document)).toEqual([]);
+  });
+});
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flush();
