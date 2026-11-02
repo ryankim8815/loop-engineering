@@ -1113,6 +1113,54 @@ describe('a list control pressed while an inline edit is open (R17)', () => {
   });
 });
 
+describe('keyboard focus after a re-render (R18)', () => {
+  // A toggle or an inline-edit save rebuilds every <li> (render() → replaceChildren), so the
+  // focused control used to be detached and focus fell to <body>. A keyboard user then had to
+  // Tab from the top of the page before every next action. Focus now stays on the same control
+  // of the same item (spec 02: every control must be operable by keyboard alone).
+  it('R18: toggling an item with the keyboard keeps focus on that item’s checkbox', async () => {
+    const { document } = await mountApp([existing, done]);
+    const toggle = itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle');
+    if (!toggle) throw new Error('no checkbox for "existing"');
+    toggle.focus();
+
+    toggle.click();
+    await settle();
+
+    const after = itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle');
+    expect(after?.checked).toBe(true);
+    expect(document.activeElement).toBe(after);
+  });
+
+  it('R18: saving an inline edit with Enter moves focus to that item’s 수정 button', async () => {
+    const { document } = await mountApp([existing]);
+    document.querySelector<HTMLButtonElement>('button[aria-label="수정: existing"]')?.click();
+
+    const editor = editorIn(document);
+    editor.value = 'renamed';
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await settle();
+
+    expect(document.querySelector('#todo-list .todo-edit')).toBeNull();
+    expect(document.activeElement).toBe(
+      itemFor(document, 'renamed').querySelector<HTMLButtonElement>('.todo-edit-button'),
+    );
+  });
+
+  it('R18: cancelling an inline edit with Esc moves focus to that item’s 수정 button', async () => {
+    const { document } = await mountApp([existing]);
+    document.querySelector<HTMLButtonElement>('button[aria-label="수정: existing"]')?.click();
+
+    const editor = editorIn(document);
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+
+    expect(document.activeElement).toBe(
+      itemFor(document, 'existing').querySelector<HTMLButtonElement>('.todo-edit-button'),
+    );
+  });
+});
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flush();

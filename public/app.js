@@ -105,6 +105,11 @@ export function startApp({ document, window, api }) {
   // still pending does not set it, because that load will fetch the list itself.
   let listStale = false;
 
+  // The control that focus should land on after the next render (R18). Set when an edit ends with
+  // Enter or Esc, because the editor that had focus is removed. Consumed by the next render().
+  /** @type {{ id: string, className: string } | null} */
+  let focusTarget = null;
+
   /** @param {Todo[]} next */
   function commitTodos(next) {
     todos = next;
@@ -184,6 +189,9 @@ export function startApp({ document, window, api }) {
     const previous = editing?.element;
     const hadFocus = previous !== undefined && document.activeElement === previous;
     const caret = hadFocus ? [previous.selectionStart, previous.selectionEnd] : undefined;
+    // Rebuilding the list detaches the focused control, and focus would fall to <body> (R18).
+    const control = focusTarget ?? focusedControl();
+    focusTarget = null;
     if (editing && !visible.some((todo) => todo.id === editing?.id)) {
       editing = null;
     }
@@ -197,9 +205,35 @@ export function startApp({ document, window, api }) {
     if (hadFocus && editing?.element && caret) {
       editing.element.focus();
       editing.element.setSelectionRange(caret[0], caret[1]);
+    } else if (control) {
+      focusControl(control);
     }
     remaining.textContent = `${countRemaining(todos)}개 남음`;
     renderFilterLinks();
+  }
+
+  // The per-item controls that keep keyboard focus across a re-render (R18).
+  const CONTROL_CLASSES = ['todo-toggle', 'todo-edit-button', 'todo-delete'];
+
+  // The item control that has focus, as its item id and class. null when focus is elsewhere
+  // (including inside an inline editor, which is handled separately).
+  function focusedControl() {
+    const active = document.activeElement;
+    const item = /** @type {HTMLElement | null} */ (active?.closest('#todo-list > li') ?? null);
+    const className = CONTROL_CLASSES.find((name) => active?.classList.contains(name));
+    if (!item?.dataset.id || !className) return null;
+    return { id: item.dataset.id, className };
+  }
+
+  // Focuses the same control of the same item in the rebuilt list. If the item is no longer
+  // shown (deleted or filtered out), focus is left alone (R18).
+  /** @param {{ id: string, className: string }} control */
+  function focusControl({ id, className }) {
+    const item = [...list.children].find((li) => /** @type {HTMLElement} */ (li).dataset.id === id);
+    const target = /** @type {HTMLElement | null | undefined} */ (
+      item?.querySelector(`.${className}`)
+    );
+    target?.focus();
   }
 
   function renderFilterLinks() {
@@ -337,13 +371,17 @@ export function startApp({ document, window, api }) {
   }
 
   function cancel() {
+    const { id } = editing;
     editing = null;
+    focusTarget = { id, className: 'todo-edit-button' };
     render();
   }
 
   async function commit(editor) {
     const { id, title } = editing;
     editing = null;
+    // The editor is removed once the edit ends, so focus goes to the item's 수정 button (R18).
+    focusTarget = { id, className: 'todo-edit-button' };
     const result = resolveEdit(title, editor.value);
     if (result.action === 'cancel') {
       render();

@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R16 are done (R12 red-before-fix not run, see Done). Only the manual smoke test is blocked (see "Blocked").
+  review findings R1–R18 are done (R12 red-before-fix not run, see Done). Only the manual smoke test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
   - 01: a browser opening an unknown path gets the raw **JSON 404**; no HTML error page.
@@ -39,20 +39,7 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-- [ ] **R18. Keyboard focus is lost to `<body>` after every toggle or inline-edit save** (medium) — Evidence: a
-      `node --input-type=module -e` script built a happy-dom `Window`, loaded the `index.html` body, ran `startApp`
-      with a stub fetch seeded with T1–T3, focused T2's `.todo-toggle` and called `.click()`, then focused T1's
-      `.todo-edit-button`, clicked it, set the editor to `T1x` and dispatched `keydown` Enter →
-      `before: true 완료: T2` / `after: active= BODY | old checkbox connected= false | new checked= true` /
-      `after edit Enter: active= BODY | title= T1x`. `commitTodos` → `render()` rebuilds every `<li>`
-      (`list.replaceChildren`), so the focused control is detached. A keyboard user who toggles item 15 of 20 with
-      Space must Tab from the top of the page again before the next action. Esc/cancel goes through the same
-      `render()`, but that path was not reproduced separately.
-      Expected: spec 02 접근성 ("모든 컨트롤은 키보드만으로 조작 가능"). Fix: in `render()`, remember the focused
-      control's item id and class (`todo-toggle`/`todo-edit-button`/`todo-delete`, or the title's edit button after an
-      edit ends) and refocus the matching element in the new list if that item is still shown. Add a regression test
-      that fails before the fix: focus B's checkbox, toggle it, flush, assert `document.activeElement` is B's new
-      `.todo-toggle`; and open/save an edit via 수정 + Enter, assert focus is on that item's `.todo-edit-button`.
+- [x] **R18. Keyboard focus is lost to `<body>` after every toggle or inline-edit save** (medium) — moved to Done.
 
 ### REST API
 
@@ -193,6 +180,15 @@ Each evidence command is run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R18. Keyboard focus fell to `<body>` after a toggle or an inline-edit save (review 2026-11-02).** `public/app.js`
+  `render()` records the focused per-item control (`focusedControl()`: item id and class `todo-toggle` /
+  `todo-edit-button` / `todo-delete`) and refocuses the same control in the rebuilt list (`focusControl`). An edit that
+  ends with Enter or Esc sets `focusTarget` to that item's 수정 button, because its editor is removed. Blur does not
+  set it (the user moved focus elsewhere). When the item is gone, focus is left alone. Tests in
+  `tests/ui.dom.test.ts` (`R18:` ×3: toggle keeps the checkbox, Enter and Esc on an edit move focus to 수정). All three
+  failed before the fix (focus on `<body>`) and pass after. Decision: see "Focus after a re-render (R18)".
+  `npm run check` is green (229 tests).
 
 - **R17. Pressing another list control while an inline edit was open lost that press (review 2026-11-02).**
   `public/app.js` blur now calls `cancelOnBlur(editor)`: it clears `editing` and swaps only the editor for the
