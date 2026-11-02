@@ -21,6 +21,21 @@ import {
 const NETWORK_ERROR_MESSAGE = '서버에 연결할 수 없습니다. 연결을 확인해 주세요.';
 
 /**
+ * Puts `todo` into `list` by id: it replaces the entry with the same id, or appends it when
+ * that id is not there yet. A create can resolve after a resync already fetched the new todo
+ * (R9), so appending blindly would show the same todo twice.
+ *
+ * @param {Todo[]} list
+ * @param {Todo} todo
+ * @returns {Todo[]}
+ */
+function upsertTodo(list, todo) {
+  return list.some((t) => t.id === todo.id)
+    ? list.map((t) => (t.id === todo.id ? todo : t))
+    : [...list, todo];
+}
+
+/**
  * The message for the error banner. An ApiError carries the spec 01 envelope message.
  * Anything else is a failed fetch (network down), since the API client does not wrap it.
  *
@@ -283,7 +298,7 @@ export function startApp({ document, window, api }) {
     try {
       await perform(async () => {
         const created = await api.create(result.value);
-        commitTodos([...todos, created]);
+        commitTodos(upsertTodo(todos, created));
         input.value = '';
         hint.textContent = '';
       });

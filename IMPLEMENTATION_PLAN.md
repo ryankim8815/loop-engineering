@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R8 are done. Only the manual smoke test is blocked (see "Blocked").
+  review findings R1–R9 are done (R10–R12 open). Only the manual smoke test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
   - 01: a browser opening an unknown path gets the raw **JSON 404**; no HTML error page.
@@ -38,6 +38,47 @@ Conventions for every item:
 
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
+
+- [ ] **R10. Out-of-order PATCH responses leave the checkbox opposite to the server** (medium) — Evidence (review
+      2026-11-02): a `node --input-type=module -e` script that loads `public/index.html`'s body into a happy-dom
+      `Window` and calls `startApp` with a fake api whose `update` applies the patch to the server list at once but
+      holds each response. Seed `[A]` (active), click A's checkbox twice (two PATCHes:
+      `[{"completed":true},{"completed":false}]`), then release the 2nd response before the 1st. Printed:
+      `S1 UI checked: true li.completed: true counter: 0개 남음 | server completed: false`. Two requests in flight
+      can finish in either order over separate connections. The response that arrives last wins in `setCompleted` /
+      edit `commit`, even when it is older. Expected: spec 02 (the toggle shows the server's completed state; the
+      UI matches the server), and spec 01 (`updatedAt` strictly increases on every change, so the newer copy can be
+      identified). Fix: when merging an `update` response, replace the local todo only if
+      `updated.updatedAt >= local.updatedAt`. Otherwise keep the local copy, which is newer. Add a regression test in
+      `tests/ui.dom.test.ts` (`R10:`) that holds two PATCHes for one item, releases them in reverse order, and expects
+      the checkbox and counter to match the server. It must fail before the fix.
+- [ ] **R11. An unrelated re-render discards an open inline editor and its typed text** (medium) — Evidence (review
+      2026-11-02): same happy-dom harness. Seed `[A, B]`. Toggle B with its PATCH held, double-click A's title, type
+      `A 수정됨`, then release B's PATCH. Printed: `S2 editor open before: true value: A 수정됨` →
+      `S2 editor open after B toggle resolves: false A title shown: A`. `commitTodos` → `render()` rebuilds every
+      `<li>` with `replaceChildren`, so the editor is removed without Enter, Esc or blur. The same happens on any
+      resync, a late `loadList`, or the banner path in `perform`. Expected: spec 02 / AC-UI-7 (only Enter saves and only
+      Esc, an empty value or blur cancel). The edit must not end because another item's request finished. Fix: keep
+      the open edit (`{ id, draft }`) in controller state and have `render()` / `renderItem` re-create the focused
+      editor with the draft for that id. If that todo is gone after the render, drop the edit. Add a regression test
+      in `tests/ui.dom.test.ts` (`R11:`) that opens the editor, resolves another item's held PATCH, and expects the
+      editor (with the typed value) to remain and Enter to send `PATCH {title}`. It must fail before the fix.
+- [ ] **R12. "완료 항목 삭제" during an in-flight toggle leaves the list different from the server** (medium) —
+      Evidence (review 2026-11-02): a one-line `node --input-type=module -e` script that loads `public/index.html` into
+      a happy-dom `Window` (JS loading/evaluation disabled) and calls `startApp` with a fake api. Its `update` applies
+      the patch to the server list at once but holds the response. Its `clearCompleted` removes completed server items
+      and resolves at once. Click A's checkbox, then 완료 항목 삭제, then release the PATCH. (a) Seed A active. Printed:
+      `after clear resolves: [ ':A' ] 1개 남음 server: 0` → `after PATCH resolves: [ 'completed:A' ] 0개 남음 server: 0
+      banner hidden: true`. The UI shows a todo the server deleted. (b) Seed A completed (toggle to active). Printed:
+      `UI: [] 0개 남음 server: ["A/false"]`. A todo that still exists on the server disappears from the UI. No error
+      is shown, so nothing resyncs. `clearCompleted()` drops the items that are completed in *local* state, which is
+      not the set the server deleted while a toggle is in flight. R10's `updatedAt` guard does not fix this: in (a) the
+      PATCH copy is newer, and in (b) the item is already gone locally. Expected: spec 02 (the UI uses the API's
+      result and matches the server state) and spec 01 (`DELETE ?completed=true` deletes the items completed on the
+      server). Fix: after `DELETE ?completed=true` succeeds, reload the list with `loadList()` instead of filtering
+      local state. A late PATCH response for a deleted id then maps over nothing. Add a regression test in
+      `tests/ui.dom.test.ts` (`R12:`) for both seeds that holds the PATCH, clears, releases the PATCH, and expects the
+      rendered titles and counter to match the fake server. It must fail before the fix.
 
 ### REST API
 
@@ -102,10 +143,22 @@ Each evidence command is run from the repo root as
 - **R4 invariant.** `TodoRepository.create` throws if the row is missing right after its own insert. Chosen: fail
   loudly, which surfaces as a 500, rather than return a value the write did not store. Rejected: returning the
   input as a fallback, which is the bug R4 describes.
+- **Review scope (review 2026-11-02, R12 pass).** API edge probes via `app.inject()` behaved per spec 01 and are not
+  recorded: a deeply nested array/object title (400), `__proto__`/`constructor` keys (400 invalid JSON), an uppercase
+  `APPLICATION/JSON` or `charset=latin1` Content-Type (201), `+json`/`jsonx` types (400), a leading BOM (201),
+  PUT/OPTIONS/trailing-slash paths (JSON 404), and a JSON body on bulk DELETE (200). A NUL character inside a title
+  is accepted and round-trips. Chosen: keep it (spec 01 forbids no code point). Rejected: rejecting control
+  characters, a rule the spec does not state.
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R9. A resync overlapping an add showed the new todo twice (review 2026-11-02).** `public/app.js` `submit()` now
+  commits the created todo with `upsertTodo` (replace by id, append only if missing), not `[...todos, created]`.
+  Test `tests/ui.dom.test.ts` (`R9:`): the POST is held after the server stores the todo, a failed toggle resyncs
+  (its GET includes the todo), then the POST is released. It failed before the fix (3 `<li>`, `['existing', '새 항목',
+  '새 항목']`). Decision: none needed (no spec choice). `npm run check` is green (212 tests).
 
 - **R4. A lone-surrogate title differed between POST/PATCH and GET (review 2026-11-02).** `TodoRepository.create` and
   `update` now return the row read back with `get(id)`, not the in-memory object. The stored text (SQLite UTF-8) is

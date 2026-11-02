@@ -715,6 +715,59 @@ describe('duplicate add while a create is in flight (R8)', () => {
   });
 });
 
+describe('a resync that overlaps an add (R9)', () => {
+  // The POST for `새 항목` is held after the server has stored it. A failed toggle of `existing`
+  // then resyncs, and that GET already contains the new todo. Before the fix, releasing the POST
+  // appended the created todo to the resynced list again, so the same id was shown twice and the
+  // counter was off by one.
+  it('R9: a POST that resolves after a resync shows the created todo once', async () => {
+    loadIndexBody();
+    const server = createFakeServer([existing]);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let heldPost = false;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'POST' && !heldPost) {
+        heldPost = true;
+        const response = await server.fetch(input, init);
+        await gate;
+        return response;
+      }
+      return server.fetch(input, init);
+    }) as typeof fetch;
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    const input = document.getElementById('new-title') as HTMLInputElement;
+    input.value = '새 항목';
+    (document.getElementById('add-button') as HTMLButtonElement).click();
+    await settle();
+
+    server.failNext('PATCH', {
+      status: 404,
+      code: 'NOT_FOUND',
+      message: '리소스를 찾을 수 없습니다.',
+    });
+    const checkbox = itemFor(document, 'existing').querySelector<HTMLInputElement>('.todo-toggle');
+    if (!checkbox) throw new Error('no checkbox for "existing"');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change'));
+    await settle();
+    expect(listTitles(document)).toEqual(['existing', '새 항목']);
+
+    release();
+    await started;
+    await settle();
+
+    expect(listTitles(document)).toEqual(['existing', '새 항목']);
+    expect(remainingText(document)).toBe('2개 남음');
+    expect(server.todos).toHaveLength(2);
+  });
+});
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flush();
