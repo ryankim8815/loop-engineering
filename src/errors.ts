@@ -87,5 +87,13 @@ export function toErrorResponse(error: unknown): ErrorResponse {
     };
   }
 
+  // @fastify/static (via `send`) refuses odd paths such as `//` or `/..%5c…` with a
+  // plain Error carrying statusCode 403. Those requests name a file that is not
+  // served, so they are 404 NOT_FOUND (spec 01), not a server error.
+  const statusCode = readProp(error, 'statusCode');
+  if (statusCode === 403 || statusCode === 404) {
+    return { statusCode: 404, body: errorEnvelope('NOT_FOUND', NOT_FOUND_MESSAGE) };
+  }
+
   return { statusCode: 500, body: errorEnvelope('INTERNAL_ERROR', INTERNAL_MESSAGE) };
 }

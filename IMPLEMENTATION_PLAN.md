@@ -38,17 +38,6 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-- [ ] **R2. Traversal-looking static paths return 500 INTERNAL_ERROR instead of 404** (medium) — Evidence: `<ARGS>` =
-      `{ method: 'GET', url: '/..%5cpackage.json' }` (also `/a%5c..%5c..%5cpackage.json`) → `500
-      {"error":{"code":"INTERNAL_ERROR",...}}`. An `onError` hook shows the cause: `@fastify/static`/`send` throws a
-      plain `Error` with `statusCode 403` ("Forbidden"), which `toErrorResponse` maps to 500 and logs as an unhandled
-      server error. The file is not leaked (good), but the status is wrong. Expected: spec 01 — a non-existent path is
-      `404 NOT_FOUND`; 500 is only for real server errors. Fix: in `toErrorResponse` (or the error handler), map a
-      non-AppError carrying `statusCode` 403/404 from static serving to `404 NOT_FOUND`. Add a regression test that
-      fails before the fix (`GET /..%5cpackage.json` → 404 envelope, body does not contain `"name"` from package.json).
-      Wider than traversal (re-review 2026-11-02, same `send` 403 cause shown by an `onError` hook): `//api/health`,
-      `/api/todos//`, `//`, `/a//b`, `//index.html` and `/index.html%00` all → `500 INTERNAL_ERROR`. Cover at least
-      `/api/todos//` and `/index.html%00` in the regression test too.
 - [ ] **R3. Oversized bodies and Content-Length mismatches return 500 INTERNAL_ERROR** (medium) — Evidence: `<ARGS>` =
       `{ method: 'POST', url: '/api/todos', headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ title: 'x'.repeat(2000000) }) }`
       → `500 {"error":{"code":"INTERNAL_ERROR",...}}` (cause `FST_ERR_CTP_BODY_TOO_LARGE`, 413); and
@@ -161,6 +150,11 @@ Each evidence command is run from the repo root as
 
 ## Done
 
+- **R2. Traversal-looking static paths returned 500 (review 2026-11-02).** `toErrorResponse` maps a non-AppError with
+  `statusCode` 403 or 404 (what `send` throws for `//`, `/..%5c…`, `/index.html%00`) to 404 `NOT_FOUND`. Those
+  paths are not logged as server errors. The file contents are still not served. Regression tests in
+  `tests/ui.static.test.ts` (8 URLs, including `/api/todos//` and `/index.html%00`) failed before the fix. Decision:
+  see "Status codes for R1–R3". `npm run check` is green (192 tests).
 - **R1. Malformed percent-encoding envelope (review 2026-11-02).** `buildApp` passes Fastify's `frameworkErrors`
   to the same `sendError` used by `setErrorHandler`. `src/errors.ts` maps `FST_ERR_BAD_URL` → 400
   `VALIDATION_ERROR` (the body-error map is renamed `REQUEST_ERROR_MESSAGES`). Regression tests in

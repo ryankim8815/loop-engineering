@@ -84,4 +84,28 @@ describe('static UI', () => {
     expect(res.headers['content-type']).toMatch(/application\/json/);
     expect(res.json().error.code).toBe('NOT_FOUND');
   });
+
+  // @fastify/static (via send) refuses these paths with a plain Error carrying
+  // statusCode 403. Before the fix that became 500 INTERNAL_ERROR, which blamed
+  // the server for a bad URL and logged it as an unhandled error. The path is a
+  // client mistake for a file that does not exist, so the answer is 404 NOT_FOUND.
+  // The body must not leak package.json, which the traversal sequences point at.
+  it.each([
+    '/..%5cpackage.json',
+    '/a%5c..%5c..%5cpackage.json',
+    '/api/todos//',
+    '/index.html%00',
+    '//api/health',
+    '//',
+    '/a//b',
+    '//index.html',
+  ])('R2: %s returns the JSON 404 NOT_FOUND envelope, not 500', async (url) => {
+    app = buildApp({ dbPath: ':memory:' });
+    const res = await app.inject({ method: 'GET', url });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.json()).toEqual({ error: { code: 'NOT_FOUND', message: expect.any(String) } });
+    expect(res.body).not.toContain('"name"');
+  });
 });
