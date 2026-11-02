@@ -39,25 +39,37 @@ Conventions for every item:
 
 ### Wrap-up
 
-- [ ] **18. Coverage audit & DoD.** Verified: all 20 spec AC ids (AC-API-1…12, AC-UI-1…8) appear in passing
-      tests, and the specs define no others. No `.skip`/`.todo`/`TODO` in `src`, `public`, `tests`. `npm run check`
-      is green (180 tests). **Still open:** the manual `npm start` smoke test at http://localhost:3000 (DoD #3).
-      AGENTS.md bars background servers in headless mode, so a person has to run it. Do **not** edit `README.md`
-      (agent-protected); note any README drift under Open questions instead.
+- [x] **18. Coverage audit & DoD (automated part).** Re-verified 2026-11-02: all 20 spec AC ids (AC-API-1…12,
+      AC-UI-1…8) appear in passing tests (`grep -rhoE "AC-(API|UI)-[0-9]+" specs` yields 20 unique ids), and
+      `npm run check` is green (180 tests). No `.skip`/`.todo`/`TODO`/`FIXME` in `src`, `public`, `tests`.
+      Working tree was clean before this run. The manual smoke test moved to Blocked below.
+
+## Blocked (needs human)
+
+- **Manual smoke test (DoD #3).** Run `npm start` and open http://127.0.0.1:3000 (the spec default; the older
+  note said localhost:3000). Confirm the list loads, add/toggle/edit/delete/filter/clear-completed work, and an
+  unknown path returns JSON 404. Why: AGENTS.md forbids background servers in headless `dontAsk` mode, so the
+  agent cannot run it. Do **not** edit `README.md` (agent-protected); note any README drift here instead.
 
 ## Open questions
 
+(none)
 
-- Inline edit over-length titles (item 15 chose the default): `resolveEdit` does not check the 200-code-point
-  limit, so an over-long edit sends a PATCH and gets the server's 400. Spec 02 does not say whether the UI
-  should validate first (for example, keep the editor open with a message). Decide when the spec is clarified.
+## Decisions (pending human review)
 
-- `npm install` reported 3 moderate npm audit advisories. The audit command was blocked in this iteration, so
-  the affected package is unknown. Run `npm audit --omit=dev` (runtime deps) and `npm audit` (all) to triage.
-  Only fix them if the fix is non-breaking and `npm run check` stays green.
-
-The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
-answered in specs 01/02. See "Current state".
+- **Inline edit over-length titles.** Spec 02 is silent on whether the UI validates a PATCH title before sending.
+  Chosen: `resolveEdit` still sends the PATCH with no client-side length check. The server returns 400 and item 16's
+  error banner shows the envelope message, then resyncs. Rejected: client-side validation that keeps the editor
+  open with a message. Reason: that adds UI behaviour the spec does not describe, and the server stays the single
+  source of truth for the 200-code-point rule. Spec: 02 (inline edit), 01 (title rule).
+- **npm audit (3 moderate advisories).** `npm audit --omit=dev` reports `@fastify/static` → `glob` → `minimatch`
+  (GHSA-g3hv-75wg-m249, ReDoS-style DoS). `npm audit` adds no further packages. The only fix offered is
+  `npm audit fix --force`, which downgrades `@fastify/static` to 6.12.0 (breaking). Chosen: leave the dependency
+  as is. Reason: the fix is breaking, the spec only permits the three declared deps, and the advisory affects
+  untrusted glob patterns, which this app never passes to `@fastify/static` (it serves a fixed `public/` root).
+  Rejected: forced downgrade. Revisit when `@fastify/static` ships a release that resolves `minimatch` ≥ 11.0.1.
+- The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
+  answered in specs 01/02. See "Current state".
 
 ## Done
 
