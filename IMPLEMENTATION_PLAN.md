@@ -38,15 +38,6 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-- [ ] **R3. Oversized bodies and Content-Length mismatches return 500 INTERNAL_ERROR** (medium) — Evidence: `<ARGS>` =
-      `{ method: 'POST', url: '/api/todos', headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ title: 'x'.repeat(2000000) }) }`
-      → `500 {"error":{"code":"INTERNAL_ERROR",...}}` (cause `FST_ERR_CTP_BODY_TOO_LARGE`, 413); and
-      `{ ..., headers: { 'content-type': 'application/json', 'content-length': '5' }, payload: '{"title":"abcdef"}' }`
-      → `500` (cause `FST_ERR_CTP_INVALID_CONTENT_LENGTH`, 400). Both are client errors, and both are logged as
-      unhandled server errors. Expected: spec 01 — body validation failures (incl. "200자 초과") are `400
-      VALIDATION_ERROR`; 500 is only "그 외 서버 오류". Fix: add `FST_ERR_CTP_BODY_TOO_LARGE` and
-      `FST_ERR_CTP_INVALID_CONTENT_LENGTH` to `BODY_ERROR_MESSAGES` in `src/errors.ts`. Add regression tests that
-      fail before the fix (both cases → 400 `VALIDATION_ERROR`).
 - [ ] **R4. A title with a lone surrogate is returned differently by POST and by GET** (low) — Evidence: `<ARGS>` =
       `{ method: 'POST', url: '/api/todos', headers: { 'content-type': 'application/json' }, payload: '{"title":"a\\ud800b"}' }`
       → `201` with title `"a\ud800b"`, but a following `GET /api/todos/<id>` returns `"a�b"` (SQLite stores
@@ -150,6 +141,10 @@ Each evidence command is run from the repo root as
 
 ## Done
 
+- **R3. Oversized bodies and Content-Length mismatches returned 500 (review 2026-11-02).** `src/errors.ts`
+  `REQUEST_ERROR_MESSAGES` now includes `FST_ERR_CTP_BODY_TOO_LARGE` and `FST_ERR_CTP_INVALID_CONTENT_LENGTH` →
+  400 `VALIDATION_ERROR`. Regression tests in `tests/errors.test.ts` (2.0 MB body; `content-length: 5` with a longer
+  payload) failed before the fix. Decision: see "Status codes for R1–R3". `npm run check` is green (194 tests).
 - **R2. Traversal-looking static paths returned 500 (review 2026-11-02).** `toErrorResponse` maps a non-AppError with
   `statusCode` 403 or 404 (what `send` throws for `//`, `/..%5c…`, `/index.html%00`) to 404 `NOT_FOUND`. Those
   paths are not logged as server errors. The file contents are still not served. Regression tests in

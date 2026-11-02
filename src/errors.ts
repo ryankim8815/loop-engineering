@@ -42,6 +42,11 @@ const REQUEST_ERROR_MESSAGES = new Map<string, string>([
   ['FST_ERR_BAD_URL', '잘못된 URL 형식입니다.'],
   ['FST_ERR_CTP_INVALID_JSON_BODY', '요청 본문이 올바른 JSON이 아닙니다.'],
   ['FST_ERR_CTP_EMPTY_JSON_BODY', 'JSON 요청 본문이 비어 있습니다.'],
+  ['FST_ERR_CTP_BODY_TOO_LARGE', '요청 본문이 너무 큽니다.'],
+  [
+    'FST_ERR_CTP_INVALID_CONTENT_LENGTH',
+    'Content-Length 헤더가 요청 본문 크기와 일치하지 않습니다.',
+  ],
   [
     'FST_ERR_CTP_INVALID_MEDIA_TYPE',
     '지원하지 않는 Content-Type입니다. application/json을 사용하세요.',

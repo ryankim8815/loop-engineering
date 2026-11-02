@@ -149,4 +149,40 @@ describe('error envelope', () => {
       expect(res.body).not.toContain('FST_ERR');
     },
   );
+
+  // Both are client mistakes. Before the fix they fell through to 500
+  // INTERNAL_ERROR and were logged as unhandled server errors. Spec 01 puts
+  // body validation failures in 400 VALIDATION_ERROR; 500 is only for real
+  // server faults.
+  it('R3: a body above the 1 MiB Fastify limit returns 400 VALIDATION_ERROR, not 500', async () => {
+    app = buildTestApp();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/__test/echo',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ title: 'x'.repeat(2_000_000) }),
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      error: { code: 'VALIDATION_ERROR', message: expect.any(String) },
+    });
+    expect(res.body).not.toContain('FST_ERR');
+  });
+
+  it('R3: a Content-Length that does not match the body returns 400 VALIDATION_ERROR, not 500', async () => {
+    app = buildTestApp();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/__test/echo',
+      headers: { 'content-type': 'application/json', 'content-length': '5' },
+      payload: '{"title":"abcdef"}',
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      error: { code: 'VALIDATION_ERROR', message: expect.any(String) },
+    });
+    expect(res.body).not.toContain('FST_ERR');
+  });
 });
