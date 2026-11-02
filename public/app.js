@@ -327,10 +327,12 @@ export function startApp({ document, window, api }) {
     });
   }
 
+  // The server decides which items the bulk delete removed (R12). Local completed flags can be
+  // stale while a toggle is in flight, so the list is re-fetched instead of filtered locally.
   function clearCompleted() {
     return perform(async () => {
       await api.clearCompleted();
-      commitTodos(todos.filter((todo) => !todo.completed));
+      await loadList();
     });
   }
 

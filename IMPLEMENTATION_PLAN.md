@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R11 are done (R12 open). Only the manual smoke test is blocked (see "Blocked").
+  review findings R1–R12 are done (R12 red-before-fix not run, see Done). Only the manual smoke test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
   - 01: a browser opening an unknown path gets the raw **JSON 404**; no HTML error page.
@@ -38,23 +38,6 @@ Conventions for every item:
 
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
-
-- [ ] **R12. "완료 항목 삭제" during an in-flight toggle leaves the list different from the server** (medium) —
-      Evidence (review 2026-11-02): a one-line `node --input-type=module -e` script that loads `public/index.html` into
-      a happy-dom `Window` (JS loading/evaluation disabled) and calls `startApp` with a fake api. Its `update` applies
-      the patch to the server list at once but holds the response. Its `clearCompleted` removes completed server items
-      and resolves at once. Click A's checkbox, then 완료 항목 삭제, then release the PATCH. (a) Seed A active. Printed:
-      `after clear resolves: [ ':A' ] 1개 남음 server: 0` → `after PATCH resolves: [ 'completed:A' ] 0개 남음 server: 0
-      banner hidden: true`. The UI shows a todo the server deleted. (b) Seed A completed (toggle to active). Printed:
-      `UI: [] 0개 남음 server: ["A/false"]`. A todo that still exists on the server disappears from the UI. No error
-      is shown, so nothing resyncs. `clearCompleted()` drops the items that are completed in *local* state, which is
-      not the set the server deleted while a toggle is in flight. R10's `updatedAt` guard does not fix this: in (a) the
-      PATCH copy is newer, and in (b) the item is already gone locally. Expected: spec 02 (the UI uses the API's
-      result and matches the server state) and spec 01 (`DELETE ?completed=true` deletes the items completed on the
-      server). Fix: after `DELETE ?completed=true` succeeds, reload the list with `loadList()` instead of filtering
-      local state. A late PATCH response for a deleted id then maps over nothing. Add a regression test in
-      `tests/ui.dom.test.ts` (`R12:`) for both seeds that holds the PATCH, clears, releases the PATCH, and expects the
-      rendered titles and counter to match the fake server. It must fail before the fix.
 
 ### REST API
 
@@ -134,6 +117,19 @@ Each evidence command is run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R12. "완료 항목 삭제" during an in-flight toggle left the list different from the server (review 2026-11-02).**
+  `public/app.js` `clearCompleted` now calls `loadList()` after `DELETE ?completed=true` succeeds, instead of
+  filtering local state (`todos.filter(!completed)`). The server decides what was deleted, and a late PATCH response
+  for a deleted id maps over nothing. Tests in `tests/ui.dom.test.ts` (`R12:` ×2): A active (server deletes it, so
+  the list must be empty) and A completed (the clear deletes nothing, so A must stay). Both hold the PATCH, clear,
+  release, then compare the rendered titles and counter with the fake server. Decision: re-fetch instead of local
+  filtering (no spec choice needed). The alternative, deleting the ids the server reports as deleted, needs a
+  response shape the spec does not define.
+  **Red-before-fix not run.** The autonomous run's shell was denied the command that would swap in the pre-fix
+  `app.js`. By reading the old code, both tests should fail: seed A active keeps A locally (server 0), and seed A
+  completed drops A locally (server 1). Verify with the old `clearCompleted` before relying on these tests.
+  `npm run check` is green (216 tests, after `npm run format` reflowed one test line).
 
 - **R11. An unrelated re-render discarded an open inline editor (review 2026-11-02).** `public/app.js` keeps the open
   edit in `editing` (`{ id, title, draft, element }`). `render()` rebuilds the editor from the draft and restores

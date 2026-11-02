@@ -862,6 +862,75 @@ describe('an open inline editor survives another item’s response (R11)', () =>
   });
 });
 
+describe('clear completed while a toggle is in flight (R12)', () => {
+  // A's toggle PATCH is held (the server applies it at once), then 완료 항목 삭제 runs, then the held
+  // PATCH response is released. The server's bulk delete decides what is gone, not the local
+  // completed flags. Before the fix the UI dropped items by its local state, so it showed a todo
+  // the server had deleted (seed: A active) or hid a todo the server still had (seed: A completed).
+  async function clearWhileToggleHeld(seed: Todo[]) {
+    loadIndexBody();
+    const server = createFakeServer(seed);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let heldPatch = false;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'PATCH' || heldPatch) return server.fetch(input, init);
+      heldPatch = true;
+      const response = await server.fetch(input, init);
+      await gate;
+      return response;
+    }) as typeof fetch;
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    itemFor(document, 'A').querySelector<HTMLInputElement>('.todo-toggle')?.click();
+    await settle();
+    document.querySelector<HTMLButtonElement>('#clear-completed')?.click();
+    await settle();
+
+    release();
+    await started;
+    await settle();
+    return { document, server };
+  }
+
+  function expectUiMatchesServer(document: Document, server: ReturnType<typeof createFakeServer>) {
+    expect(listTitles(document)).toEqual(server.todos.map((todo) => todo.title));
+    const active = server.todos.filter((todo) => !todo.completed).length;
+    expect(remainingText(document)).toBe(`${active}개 남음`);
+    for (const todo of server.todos) {
+      const checkbox = itemFor(document, todo.title).querySelector<HTMLInputElement>(
+        '.todo-toggle',
+      );
+      expect(checkbox?.checked).toBe(todo.completed);
+    }
+  }
+
+  it('R12: A was active and is deleted by the server once its toggle lands, so the list is empty', async () => {
+    const itemA: Todo = { ...existing, id: '22222222-2222-4222-8222-222222222222', title: 'A' };
+    const { document, server } = await clearWhileToggleHeld([itemA]);
+
+    expect(server.todos).toHaveLength(0);
+    expectUiMatchesServer(document, server);
+  });
+
+  it('R12: A was completed, the toggle makes it active on the server, so the clear deletes nothing and A stays', async () => {
+    const itemA: Todo = {
+      ...existing,
+      id: '22222222-2222-4222-8222-222222222222',
+      title: 'A',
+      completed: true,
+    };
+    const { document, server } = await clearWhileToggleHeld([itemA]);
+
+    expect(server.todos).toHaveLength(1);
+    expect(server.todos[0]?.completed).toBe(false);
+    expectUiMatchesServer(document, server);
+  });
+});
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flush();
