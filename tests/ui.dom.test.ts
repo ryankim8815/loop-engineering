@@ -623,6 +623,98 @@ describe('a late list response (R5)', () => {
   });
 });
 
+describe('duplicate add while a create is in flight (R8)', () => {
+  // The POST is sent right away and its response is held until release(). Before the fix
+  // the input was cleared only after the POST resolved, so a second click or Enter sent the
+  // same title again and one user action created two todos.
+  function holdFirstPost() {
+    loadIndexBody();
+    const server = createFakeServer([]);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let heldFirstPost = false;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'POST' && !heldFirstPost) {
+        heldFirstPost = true;
+        const response = await server.fetch(input, init);
+        await gate;
+        return response;
+      }
+      return server.fetch(input, init);
+    }) as typeof fetch;
+    return { server, fetchImpl, release: () => release() };
+  }
+
+  it('R8: a second click on 추가 while the POST is in flight sends no second request', async () => {
+    const { server, fetchImpl, release } = holdFirstPost();
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    const input = document.getElementById('new-title') as HTMLInputElement;
+    const add = document.getElementById('add-button') as HTMLButtonElement;
+    input.value = '우유 사기';
+    add.click();
+    add.click();
+    await settle();
+
+    expect(writes(server.requests)).toHaveLength(1);
+    release();
+    await started;
+    await settle();
+
+    expect(listTitles(document)).toEqual(['우유 사기']);
+    expect(input.value).toBe('');
+  });
+
+  it('R8: pressing Enter again while the POST is in flight sends no second request', async () => {
+    const { server, fetchImpl, release } = holdFirstPost();
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    const input = document.getElementById('new-title') as HTMLInputElement;
+    input.value = '우유 사기';
+    const enter = () =>
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    enter();
+    enter();
+    await settle();
+
+    expect(writes(server.requests)).toHaveLength(1);
+    release();
+    await started;
+    await settle();
+
+    expect(listTitles(document)).toEqual(['우유 사기']);
+  });
+
+  it('R8: the guard is released after a failed add, so a retry is sent', async () => {
+    loadIndexBody();
+    const server = createFakeServer([]);
+    server.failNext('POST', {
+      status: 500,
+      code: 'INTERNAL_ERROR',
+      message: '서버 오류가 발생했습니다.',
+    });
+    await startApp({ document, window, api: createApi(server.fetch) });
+    await settle();
+
+    const input = document.getElementById('new-title') as HTMLInputElement;
+    input.value = '우유 사기';
+    (document.getElementById('add-button') as HTMLButtonElement).click();
+    await settle();
+    expect(writes(server.requests)).toHaveLength(1);
+    expect(listTitles(document)).toEqual([]);
+
+    (document.getElementById('add-button') as HTMLButtonElement).click();
+    await settle();
+    expect(writes(server.requests)).toHaveLength(2);
+    expect(listTitles(document)).toEqual(['우유 사기']);
+  });
+});
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flush();

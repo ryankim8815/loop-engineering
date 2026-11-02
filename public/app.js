@@ -267,19 +267,29 @@ export function startApp({ document, window, api }) {
     });
   }
 
+  // True while a create is in flight. The input is cleared only after the POST resolves, so
+  // without this flag a second click or Enter would send the same title again (R8).
+  let adding = false;
+
   async function submit() {
+    if (adding) return;
     const result = validateTitle(input.value);
     if (!result.ok) {
       hint.textContent = result.message;
       return;
     }
     // On failure the typed title stays in the input, so the user can retry.
-    await perform(async () => {
-      const created = await api.create(result.value);
-      commitTodos([...todos, created]);
-      input.value = '';
-      hint.textContent = '';
-    });
+    adding = true;
+    try {
+      await perform(async () => {
+        const created = await api.create(result.value);
+        commitTodos([...todos, created]);
+        input.value = '';
+        hint.textContent = '';
+      });
+    } finally {
+      adding = false;
+    }
   }
 
   input.addEventListener('keydown', (event) => {

@@ -53,14 +53,6 @@ Each evidence command is run from the repo root as
       restart; `DB_PATH` default `./data/todos.db`). Fix: in `buildApp`, treat an empty/whitespace `DB_PATH` (and
       `dbPath`) as unset and fall back to the default (see Decisions). Add a regression test that fails before the
       fix (`DB_PATH=''` set via `vi.stubEnv` in a temp cwd or by asserting the resolved path).
-- [ ] **R8. Double-clicking 추가 (or Enter twice) creates duplicate todos** (low) — Evidence:
-      `node --input-type=module -e "import { Window } from 'happy-dom'; import { readFileSync } from 'node:fs'; const win = new Window({ url: 'http://127.0.0.1:3000/' }); win.document.write(readFileSync('public/index.html','utf8').replace(/<script[^>]*><\/script>/,'')); const { startApp } = await import('./public/app.js'); let n = 0; const posts = []; const api = { list: async () => [], create: async (title) => { posts.push(title); await new Promise(r => setTimeout(r, 5)); n++; return { id: '11111111-1111-4111-8111-11111111111' + n, title, completed: false, createdAt: 'x', updatedAt: 'x' }; } }; await startApp({ document: win.document, window: win, api }); win.document.getElementById('new-title').value = '우유 사기'; win.document.getElementById('add-button').click(); win.document.getElementById('add-button').click(); await new Promise(r => setTimeout(r, 30)); console.log('POSTs:', posts.length, [...win.document.querySelectorAll('.todo-title')].map(e => e.textContent)); await win.happyDOM.close();"`
-      → `POSTs: 2 [ '우유 사기', '우유 사기' ]`. `submit()` clears the input only after the POST resolves, so a
-      second click/Enter while the first POST is in flight sends the same title again. Expected: spec 02 동작 table
-      (one add action → the item is added once and the input is cleared). Fix: in `public/app.js`, ignore `submit()`
-      while a create is in flight (an `adding` flag reset in `finally`) — see Decisions. Add a regression DOM test
-      (deferred `create`, two clicks → exactly one POST and one item) that fails before the fix.
-
 ### REST API
 
 ### Web UI
@@ -119,6 +111,12 @@ Each evidence command is run from the repo root as
 
 ## Done
 
+- **R8. Double add created duplicate todos (review 2026-11-02).** `public/app.js` `submit()` ignores a call while a
+  create is in flight (`adding` flag, reset in `finally`). The flag is set after validation, so an invalid title
+  still shows its hint. A failed add releases the flag, so a retry is sent. Tests in `tests/ui.dom.test.ts`
+  (`R8:`): a second click and a second Enter each send one POST, with the POST held. Both failed before the fix
+  (2 POSTs). The retry-after-failure test passes both before and after, because it guards the flag reset. Decision:
+  see "Duplicate add guard (R8)". `npm run check` is green (203 tests). The formatter reflowed one test line.
 - **R5. A late list response overwrote items added meanwhile (review 2026-11-02).** `public/app.js` counts accepted
   local changes (`changes`, bumped by `commitTodos` for every add, edit, toggle, delete and clear). `loadList()` is
   shared by the first load and `resync()`. It requests the list again when a change landed during the request, so
