@@ -227,6 +227,14 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
   while a toggle PATCH is pending, an unrelated re-render briefly shows that checkbox in its old state until the
   response lands. It is temporary, and the screen ends matching the server. The R12 red-before-fix gap is now closed
   (see Done, R12). Only R24 stays open.
+- **Review scope (review 2026-11-02, R26 pass, no new finding).** Re-read specs 01/02, all of `src/*` and
+  `public/*`, and the AC-UI-4…7 tests. These probes behaved per spec 01 and are not recorded: query keys
+  `constructor`/`hasOwnProperty`/`__proto__` → 200 (ignored); `DELETE ?completed=true&__proto__=1` → 200; a PATCH with
+  `completed:true` plus a blank title → 400 with the todo unchanged; a title wrapped in U+3000 is trimmed; an id with a
+  trailing `%20` → JSON 404; `/main.js` → `application/javascript`. Seen but not recorded: if the user deletes an item
+  while its toggle PATCH is still pending and the server handles the DELETE first, the PATCH returns a 404 banner. The
+  resync then fixes the list. The UI cannot know the order the server handles requests in, and the screen ends up
+  matching the server, so this stays below medium.
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
