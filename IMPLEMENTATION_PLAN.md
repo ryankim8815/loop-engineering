@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R18 and R20–R23 are done (R19 had no finding; R12 red-before-fix not run, see Done). Only the manual smoke
+  review findings R1–R18 and R20–R23 are done (R19 and R25 had no finding; R12 red-before-fix verified later, see Done). Only the manual smoke
   test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
@@ -45,6 +45,7 @@ Each evidence command is run from the repo root as
 DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
 `node --input-type=module -e "import { Window } from 'happy-dom'; import { readFileSync } from 'node:fs'; import { createApi } from './public/api.js'; import { startApp } from './public/app.js'; const w = new Window({ url: 'http://x.local/' }); const d = w.document; d.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(readFileSync('public/index.html','utf8'))[1].replace(/<script[\s\S]*?<\/script>/g,''); <STUB fetch f>; await startApp({ document: d, window: w, api: createApi(f) }); <STEPS>; await w.happyDOM.close();"`.
 (R19 was used for a review pass with no finding, so numbering continues at R20.)
+
 
 ### REST API
 
@@ -91,6 +92,11 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
 - **Empty `DB_PATH` (R6, review 2026-11-02).** Spec 01 gives only the default. Chosen: an empty or whitespace-only
   value counts as unset, so the default `./data/todos.db` is used. Rejected: failing fast at startup with an error,
   which is stricter than the spec implies, and keeping today's behaviour (a temp DB), which breaks persistence.
+- **Old title shown until the save lands (R24, review 2026-11-02).** Spec 02 / AC-UI-7 says Enter saves and ends the
+  edit, but does not say which title the item shows while the PATCH is pending. Chosen: the old title, with focus on
+  수정, because the server has not accepted the new text yet and the list must mirror the server (spec 02). Rejected:
+  showing the typed text optimistically, which would show a title the server may refuse (the 400 path would then
+  need to revert it).
 - **R5 fix shape.** Chosen: discard stale list responses (version counter) in `public/app.js`. Rejected: disabling
   all controls until the first load finishes, which adds UI states spec 02 does not describe.
 - **Static 412/416 (R7, review 2026-11-02).** Spec 01 lists only 400/404/500. Chosen: client-caused 4xx from static
@@ -206,10 +212,33 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
   swaps only the editor back to the title span, so a control the user is pressing (a mousedown in progress) stays in
   the DOM. Fallback: a full `render()` when the item is no longer shown, because that item's editor has no place to go.
   Rejected: keeping the full re-render and deferring it to `mouseup` (adds timing logic the spec does not describe).
+- **Review scope (review 2026-11-02, R24 pass).** Also behaved per spec 01 and not recorded: `PROPFIND /api/todos`,
+  `OPTIONS /`, `/public/index.html`, `/styles.css/`, `/../package.json` → JSON 404; `filter=active&filter=active` and a
+  100k-char `filter` → 400; 2000 repeated unknown query params → 200; a 2 MB body on GET → 200 (ignored); a
+  101-char id (above Fastify's `maxParamLength`) → JSON 404; a bad gzip body with `content-encoding: gzip` → 400;
+  an unsatisfiable `Range` → 400 (R7); a garbage `If-Modified-Since` → 200. A POST body with a duplicate `title` key
+  takes the last value (`JSON.parse`); kept, because spec 01 sets no rule for duplicate keys. Only R24 was confirmed.
+  R24's severity is medium, not high: the save itself succeeds; what is lost is text typed after Enter.
+- **Review scope (review 2026-11-02, R25 pass, no new finding).** Re-read specs 01/02, `src/*`, `public/*` and the
+  AC tests. Server: SQL uses bound parameters and constant `WHERE` fragments only; every error goes through
+  `toErrorResponse`; the list order (`created_at`, then `rowid`) matches spec 01. UI: titles go through
+  `textContent`/`setAttribute` only; IME Enter is guarded and tested for both the add input and the editor; the AC-UI-4…7
+  tests assert requests, order, counter and hash, not just the implementation's own output. Seen but not recorded:
+  while a toggle PATCH is pending, an unrelated re-render briefly shows that checkbox in its old state until the
+  response lands. It is temporary, and the screen ends matching the server. The R12 red-before-fix gap is now closed
+  (see Done, R12). Only R24 stays open.
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R24. An inline edit stayed on screen, and ignored input, until its PATCH resolved (review 2026-11-02).**
+  `public/app.js` `commit()` now computes the edit's outcome, clears `editing`, sets `focusTarget` to the item's 수정
+  button and calls `render()` before the PATCH (cancel and save share that one render). The editor is replaced by the
+  title span at once and focus lands on 수정; the saved title replaces the old one when the response lands. Test
+  `tests/ui.dom.test.ts` (`R24:`, PATCH held): after Enter, no `.todo-edit` and focus on 수정 while pending, then
+  release gives one PATCH and the new title. Red before the fix (editor still present), green after. Decision: see
+  "Old title shown until the save lands (R24)". `npm run check` is green (241 tests).
 
 - **R21. A stale "제목을 입력하세요." hint stayed next to a valid title after a failed add (review 2026-11-02).**
   `public/app.js` `submit()` clears `hint.textContent` as soon as `validateTitle` passes, before the POST, so the
@@ -299,6 +328,12 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
   **Red-before-fix not run.** The autonomous run's shell was denied the command that would swap in the pre-fix
   `app.js`. By reading the old code, both tests should fail: seed A active keeps A locally (server 0), and seed A
   completed drops A locally (server 1). Verify with the old `clearCompleted` before relying on these tests.
+  **Verified 2026-11-02 (R25 review pass), with no file written:** a `node --input-type=module` script loaded
+  `public/app.js` as a `data:` module twice: once as it is, once with `clearCompleted` swapped back to
+  `commitTodos(todos.filter((t) => !t.completed))`. It ran the R12 scenario in happy-dom with a held PATCH. Output:
+  `current … ui=[] server=[] MATCH`, `current … ui=["A"] server=["A"] MATCH`, `pre-R12 seed completed=false ui=["A"]
+  server=[] MISMATCH`, `pre-R12 seed completed=true ui=[] server=["A"] MISMATCH`. So the pre-fix code fails the R12
+  scenario and the current code passes it.
   `npm run check` is green (216 tests, after `npm run format` reflowed one test line).
 
 - **R11. An unrelated re-render discarded an open inline editor (review 2026-11-02).** `public/app.js` keeps the open

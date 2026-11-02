@@ -399,14 +399,14 @@ export function startApp({ document, window, api }) {
 
   async function commit(editor) {
     const { id, title } = editing;
+    const result = resolveEdit(title, editor.value);
     editing = null;
     // The editor is removed once the edit ends, so focus goes to the item's 수정 button (R18).
     focusTarget = { id, className: 'todo-edit-button' };
-    const result = resolveEdit(title, editor.value);
-    if (result.action === 'cancel') {
-      render();
-      return;
-    }
+    // The edit ends now, before any PATCH (R24). Otherwise the editor stays on screen and ignores
+    // input for the whole request. The saved title replaces the old one when the response lands.
+    render();
+    if (result.action === 'cancel') return;
     await perform(async () => {
       const updated = await api.update(id, { title: result.value });
       commitTodos(mergeUpdated(todos, updated));

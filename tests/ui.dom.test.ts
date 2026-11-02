@@ -1237,6 +1237,51 @@ describe('keyboard focus after a re-render (R18)', () => {
   });
 });
 
+describe('an inline edit ends at once on Enter, not when the PATCH resolves (R24)', () => {
+  // Before the fix, commit() cleared `editing` but did not re-render until the PATCH settled. For
+  // the whole request the editor stayed on screen and focused, and it ignored Enter, Esc and blur,
+  // so text typed into it was dropped without notice (spec 02 / AC-UI-7: Enter saves and ends the
+  // edit). The PATCH is held here, so the screen is checked while it is still pending.
+  it('R24: after Enter the editor is gone and focus is on 수정 while the PATCH is pending, and the save lands on release', async () => {
+    loadIndexBody();
+    const server = createFakeServer([existing]);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'PATCH') return server.fetch(input, init);
+      const response = await server.fetch(input, init);
+      await gate;
+      return response;
+    }) as typeof fetch;
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    document.querySelector<HTMLButtonElement>('button[aria-label="수정: existing"]')?.click();
+    await settle();
+    const editor = editorIn(document);
+    editor.value = 'renamed';
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await settle();
+
+    expect(document.querySelector('#todo-list .todo-edit')).toBeNull();
+    expect(document.activeElement).toBe(
+      itemFor(document, 'existing').querySelector<HTMLButtonElement>('.todo-edit-button'),
+    );
+    expect(writes(server.requests).filter((r) => r.method === 'PATCH')).toHaveLength(1);
+
+    release();
+    await started;
+    await settle();
+
+    expect(itemFor(document, 'renamed')).toBeDefined();
+    expect(document.querySelector('#todo-list .todo-edit')).toBeNull();
+    expect(writes(server.requests).filter((r) => r.method === 'PATCH')).toHaveLength(1);
+    expect(server.todos[0]?.title).toBe('renamed');
+  });
+});
+
 describe('focus when the focused item leaves the list (R20)', () => {
   const item = (name: string, completed = false): Todo => ({
     id: `r20-${name}`,
