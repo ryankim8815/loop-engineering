@@ -92,10 +92,12 @@ sequenceDiagram
 loop-engineering/
 ├── README.md                  # 이 문서
 ├── loop.sh                    # ★ 랄프 루프 실행기 (plan / build / review 모드)
-├── stop.sh                    # 그레이스풀 셧다운: 현재 반복이 끝나면 루프 종료
+├── cycle.sh                   # 무인 사이클: (build + review) 세트를 정해진 횟수만큼 반복
+├── stop.sh                    # 그레이스풀 셧다운: 현재 반복이 끝나면 루프(또는 사이클) 종료
 ├── PROMPT_plan.md             # ★ plan 모드 프롬프트 — 계획만 세움
 ├── PROMPT_build.md            # ★ build 모드 프롬프트 — 항목 1개 구현·검증·커밋
 ├── PROMPT_review.md           #   review 모드 프롬프트 — 결함을 재현해 계획에 기록 (고치지 않음)
+├── PROMPT_autonomy.md         #   무인 실행 규칙 — 사람 대신 내릴 결정 (RALPH_AUTONOMOUS=1일 때만 덧붙임)
 ├── IMPLEMENTATION_PLAN.md     # ★ 반복 간 공유되는 "기억" (현재는 비어 있음)
 ├── AGENTS.md                  # ★ 운영 가이드: 빌드·실행·테스트 방법, 학습한 주의점
 ├── CLAUDE.md                  # `@AGENTS.md` 한 줄 — Claude Code가 AGENTS.md를 자동 로드하게 함
@@ -122,7 +124,7 @@ loop-engineering/
 | 파일 | 사람 | 에이전트 | 비고 |
 | --- | --- | --- | --- |
 | `specs/*` | ✏️ 작성 | 👀 읽기만 | 권한 설정으로 수정 차단 |
-| `PROMPT_*.md`, `loop.sh`, `stop.sh`, `scripts/`, `.claude/`, `README.md` | ✏️ 튜닝 | 👀 읽기만 | 권한 설정으로 수정 차단 |
+| `PROMPT_*.md`, `loop.sh`, `cycle.sh`, `stop.sh`, `scripts/`, `.claude/`, `README.md` | ✏️ 튜닝 | 👀 읽기만 | 권한 설정으로 수정 차단 |
 | `IMPLEMENTATION_PLAN.md` | 👀 검토 | ✏️ 생성·갱신 | 틀어지면 지우고 재생성 |
 | `AGENTS.md` | ✏️ 초기 작성 | ✏️ 학습 내용 추가 | 운영 정보만, 짧게 유지 |
 | `src/`, `public/`, `tests/` | 👀 리뷰 | ✏️ 구현 | |
@@ -262,7 +264,10 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 | 권한 | 기본 `--permission-mode dontAsk` → `.claude/settings.json` 허용 목록 밖의 도구는 **묻지 않고 거부** |
 | 실시간 로그 | `scripts/pretty.jq`로 💬 메시지 · 🔧 도구 호출 · 🏁 반복 요약(턴 수·시간·비용) 출력 |
 | 원본 로그 | `.ralph/logs/<시각>-<모드>-<번호>.jsonl`에 전체 이벤트 저장 |
-| 완료 감지 | 결과에 `<promise>COMPLETE</promise>`가 있으면 종료 |
+| 완료 감지 | 결과에 `<promise>COMPLETE</promise>`가 있으면 종료. **build는 `loop.sh`가 `npm run check`를 직접 다시 돌리고 미커밋 변경이 없을 때만 인정** (자기 선언을 그대로 믿지 않음) |
+| 자율 모드 | `RALPH_AUTONOMOUS=1`이면 `PROMPT_autonomy.md`를 시스템 프롬프트에 덧붙임. 프롬프트 파일은 그대로라 사람이 지켜보는 실행에는 영향 없음 ([5.6](#56-무인-사이클--cyclesh)) |
+| 전체 예산 | `RALPH_TOTAL_BUDGET_USD`에 도달하면 다음 반복을 시작하지 않고 종료 (exit 30) |
+| 종료 코드 | `0` COMPLETE · `10` 반복 상한 · `2` 무진척 · `20` 중단 요청 · `30` 예산 · `1` 연속 실패 · `130` Ctrl+C. 마지막 실행 결과는 `.ralph/last-run`에 기록 |
 | 진척 감지(서킷 브레이커) | build 모드에서 새 커밋 없는 반복이 연속 3회면 종료 (exit 2) |
 | 실패 재시도 | `claude`가 비정상 종료하면 30s·60s 대기 후 재시도, 연속 3회 실패 시 종료 |
 | 비용 집계 | 반복별 `total_cost_usd`를 합산해 마지막에 출력 |
@@ -276,12 +281,17 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 | `RALPH_MODEL` | plan·review=`opus`, build=`haiku` | 메인 에이전트 모델 (별칭 또는 전체 이름). `--model`로 전달 |
 | `RALPH_SUBAGENT_MODEL` | 메인 에이전트와 동일 | 서브에이전트 모델. `CLAUDE_CODE_SUBAGENT_MODEL` 환경 변수로 전달 |
 | `RALPH_BUDGET_USD` | (없음) | 반복당 지출 상한 (`--max-budget-usd`) |
+| `RALPH_TOTAL_BUDGET_USD` | (없음) | 이번 실행 전체의 지출 상한. 반복이 끝날 때마다 확인 |
 | `RALPH_MAX_NO_PROGRESS` | `3` | 서킷 브레이커 임계값 |
+| `RALPH_AUTONOMOUS` | `0` | `1`이면 자율 규칙 적용 (보통 `cycle.sh`가 설정) |
+| `RALPH_REVIEW_MIN_SEVERITY` | (없음) | review가 이 심각도(`low`·`medium`·`high`) 이상만 기록. 자율 모드에서만 적용 |
+| `RALPH_CHECK_CMD` | `npm run check` | build COMPLETE를 인정하기 전에 실행하는 검증 명령 |
 | `RALPH_YOLO` | `0` | `1`이면 `--dangerously-skip-permissions` — **격리된 컨테이너에서만** |
 | `RALPH_PUSH` | `0` | `1`이면 반복마다 `git push` |
 
 `loop.sh` 자체의 동작은 가짜 `claude` 바이너리로 토큰을 쓰지 않고 검증했습니다: 커밋 없음 거부, 3회차 COMPLETE 감지·종료, 무진척 3회 후 exit 2, plan 기본 1회 제한, STOP 파일 중단, 비용 합산.
 review 모드 추가 후에는 review 전용 플래그 전달(build에는 없음), 계획 밖 파일 변경 시 경고, COMPLETE 종료를 같은 방식으로 확인했습니다.
+`cycle.sh` 추가 후에는 [5.6](#56-무인-사이클--cyclesh)의 종료 경로 7가지를 같은 방식으로 확인했습니다.
 
 ### 4.7 권한 설정 — `.claude/settings.json`
 
@@ -291,7 +301,7 @@ review 모드 추가 후에는 review 전용 플래그 전달(build에는 없음
 2. **`--permission-mode dontAsk` + 허용 목록** — 이 저장소의 기본값. 로컬 Mac에서 PoC 하기에 안전한 쪽입니다.
 
 - **허용**: 파일 읽기/쓰기, 서브에이전트, `npm install/run/test`, `npx vitest/tsc/biome`, `node`, 읽기 계열 git + `git add/commit`, `src|tests|public` 안에서의 `rm`, `localhost` 대상 `curl`
-- **거부**: `git push/reset/checkout/rebase/clean`, `sudo`, `npm publish`, `.env` 읽기, 웹 검색·페치, 그리고 **`specs/`, `PROMPT_*.md`, `loop.sh`, `stop.sh`, `scripts/`, `.claude/`, `README.md` 수정**
+- **거부**: `git push/reset/checkout/rebase/clean`, `sudo`, `npm publish`, `.env` 읽기, 웹 검색·페치, 그리고 **`specs/`, `PROMPT_*.md`, `loop.sh`, `cycle.sh`, `stop.sh`, `scripts/`, `.claude/`, `README.md` 수정**
 
 > 에이전트가 스스로 스펙이나 프롬프트를 고쳐 "기준을 낮추는" 것을 막는 것이 핵심입니다.
 
@@ -423,6 +433,64 @@ git checkout -- IMPLEMENTATION_PLAN.md src/server.ts
 
 기대 결과: 거부 목록에 `src/server.ts`와 `git commit …`만 있음.
 
+### 5.6 무인 사이클 — `cycle.sh`
+
+build와 review를 한 세트로 묶어, 사람에게 묻지 않고 정해진 횟수만큼 반복합니다.
+
+```bash
+./cycle.sh <세트 수> <세트당 build 상한> <세트당 review 상한>
+```
+
+```bash
+RALPH_TOTAL_BUDGET_USD=10 RALPH_CYCLE_BRANCH=1 ./cycle.sh 3 10 1
+```
+
+위 명령은 새 브랜치 `ralph/cycle-<시각>`에서 (build 최대 10회 + review 최대 1회)를 최대 3세트, 총 $10 안에서 실행합니다. 기본값은 `3 10 1`이고 횟수는 모두 상한이라, 일이 끝나면 더 일찍 멈춥니다.
+
+| 변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `RALPH_TOTAL_BUDGET_USD` | (없음) | 사이클 전체 지출 상한. 남은 예산을 각 `loop.sh` 호출에 넘김 |
+| `RALPH_REVIEW_MIN_SEVERITY` | `medium` | 2세트째부터 review가 이 심각도 이상만 기록 (사소한 지적이 끝없이 이어지는 것을 방지) |
+| `RALPH_CYCLE_BRANCH` | `0` | `1`이면 시작할 때 새 브랜치를 만들어 그 위에서 진행 |
+
+그 밖의 변수(`RALPH_MODEL` 등)는 `loop.sh`에 그대로 전달됩니다.
+
+**사람 대신 내리는 결정** — `cycle.sh`의 판단 규칙
+
+| 상황 | 결정 |
+| --- | --- |
+| build가 COMPLETE·반복 상한·무진척으로 끝남 | review로 넘어감 |
+| build가 두 세트 연속 무진척 | 전체 종료 (exit 2) |
+| build COMPLETE + review가 새 결함 없음 | **수렴** → 조기 종료 (exit 0) |
+| 한 세트 동안 새 커밋 0개 + 새 R 항목 0개 | 전체 종료 (exit 2) |
+| 누적 비용이 예산 이상 | 다음 단계를 시작하지 않고 종료 (exit 30) |
+| `stop.sh` / 연속 실패 / Ctrl+C | 즉시 종료 (exit 20 / 1 / 130) |
+| 세트 수 소진 | 종료 (exit 10) |
+| 마지막 review의 계획 변경이 커밋되지 않음 | `cycle.sh`가 `review: record findings`로 커밋 (Ctrl+C 때는 제외) |
+
+**에이전트가 내리는 결정** — `PROMPT_autonomy.md` (시스템 프롬프트에 덧붙임)
+
+| 지금까지 사람에게 미루던 것 | 자율 모드의 규칙 |
+| --- | --- |
+| 사람이 해야만 끝나는 항목 (예: 수동 스모크 테스트) | `## Blocked (needs human)`로 옮기고 다음 항목 진행. 완료 조건에서는 해결된 것으로 취급 |
+| 모호한 스펙 | 스펙과 모순되지 않는 가장 보수적인 해석을 구현하고, `## Decisions (pending human review)`에 근거와 버린 대안을 기록 |
+| 리뷰 오탐 | build가 R 항목을 맡으면 재현 테스트부터 작성. 재현되지 않으면 코드를 고치지 않고 "not reproduced"로 닫음 |
+
+끝나면 세트별 표(build 결과·커밋 수·review 결과·새 R 항목 수·비용)와 함께 **Blocked·Decisions 섹션을 출력**합니다. 병합하기 전에 사람이 이 목록부터 검토하세요.
+
+```
+════════ Ralph cycle summary ════════
+set   build         commits   review        new R items   cost
+1     COMPLETE      1         max           1             $0.3000
+2     COMPLETE      1         COMPLETE      0             $0.3000
+total cost:  $0.6000
+stopped:     converged: build COMPLETE and review found nothing new
+```
+
+중단은 `./stop.sh`로 합니다. `stop.sh`는 `cycle.sh`도 찾아내며, 실행 중인 `loop.sh` 반복이 끝나면 사이클 전체가 멈춥니다.
+
+**가짜 `claude`로 검증한 종료 경로** — 수렴(0), 세트 상한(10), 무진척(2), 두 세트 연속 무진척(2), 예산(30), 중단 요청(20), `npm run check` 실패 시 COMPLETE 거부. 자율 규칙은 사이클 안의 호출에만 붙고, 심각도 제한은 2세트째 review에만 붙는 것도 확인했습니다. 실제 모델로 사이클을 돌려 보지는 않았습니다.
+
 ---
 
 ## 6. 안전장치
@@ -436,6 +504,9 @@ git checkout -- IMPLEMENTATION_PLAN.md src/server.ts
 | 비밀 정보 노출 | `.env` 읽기 거부, `.gitignore`, 웹 페치 거부 |
 | 같은 작업 무한 반복 | 커밋 없는 반복 3회 연속 시 종료 → 사람이 로그 확인 |
 | 리뷰어가 직접 코드를 고침 | review 모드에만 `--disallowedTools`로 코드·테스트 편집과 커밋 차단 + 계획 밖 변경 경고 |
+| 거짓 COMPLETE | build COMPLETE는 `loop.sh`가 `npm run check`와 미커밋 변경 여부를 직접 확인한 뒤에만 인정 |
+| 무인 사이클의 비용 폭주 | `cycle.sh`의 세트 상한, `RALPH_TOTAL_BUDGET_USD`, 수렴·무진척 시 조기 종료 |
+| 무인 사이클의 잘못된 결정 누적 | 결정은 모두 계획의 Blocked·Decisions 섹션에 기록되고 종료 보고서에 출력. `RALPH_CYCLE_BRANCH=1`로 별도 브랜치에서 진행 |
 
 `RALPH_YOLO=1`(권한 우회)은 네트워크가 제한된 Docker 컨테이너나 VM 같은 **격리 환경에서만** 쓰세요. 로컬 Mac에서는 기본 모드를 유지하는 것을 권장합니다.
 

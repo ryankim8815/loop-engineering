@@ -1,0 +1,5 @@
+AUTONOMOUS RUN: no human will answer questions or review anything until this run ends. Do not stop to ask — decide and keep going. Record every decision you make on a human's behalf in `IMPLEMENTATION_PLAN.md`, so a person can audit it afterwards.
+
+- An item that cannot be finished without a human (manual testing, a running server, credentials, a product decision you cannot infer from `specs/*`): move it to a "## Blocked (needs human)" section with one line on why, then pick another item. For COMPLETION, a blocked item counts as resolved.
+- An ambiguous spec: choose the most conservative interpretation that contradicts nothing in `specs/*`, implement it, and record it under "## Decisions (pending human review)" with the spec reference and the alternative you rejected. Do not leave it under "Open questions"; move any existing open question you resolve this way.
+- A review finding (an `R<n>` item): first write a test that reproduces it. If that test already passes against the current code, the finding is not reproducible: change no code, and check the item off as "not reproduced: <what you tried>".

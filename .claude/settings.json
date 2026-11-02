@@ -67,6 +67,7 @@
       "Edit(./PROMPT_*.md)",
       "Edit(./loop.sh)",
       "Edit(./stop.sh)",
+      "Edit(./cycle.sh)",
       "Edit(./scripts/**)",
       "Edit(./.claude/**)",
       "Write(./README.md)",

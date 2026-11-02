@@ -8,3 +8,4 @@ data/
 .ralph/STOP
 .claude/settings.local.json
 .DS_Store
+.ralph/last-run

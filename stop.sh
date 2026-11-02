@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Graceful stop for loop.sh — the current iteration finishes (implement → check → commit), then the loop exits.
+# Graceful stop for loop.sh and cycle.sh — the current iteration finishes (implement → check → commit), then the run exits.
 #
 #   ./stop.sh            request a stop (creates .ralph/STOP)
 #   ./stop.sh --wait     request a stop and wait until the loop has exited
@@ -16,10 +16,10 @@ STOP_FILE=.ralph/STOP
 REPO_DIR="$(pwd -P)"
 TIMEOUT="${RALPH_STOP_TIMEOUT:-1800}"
 
-# PIDs of loop.sh processes whose working directory is this repo (loop.sh cd's into its own directory).
+# PIDs of loop.sh and cycle.sh processes whose working directory is this repo (loop.sh cd's into its own directory).
 loop_pids() {
   local pid cwd
-  for pid in $(pgrep -f 'loop\.sh (plan|build|review)' 2>/dev/null || true); do
+  for pid in $(pgrep -f 'loop\.sh (plan|build|review)|cycle\.sh' 2>/dev/null || true); do
     cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"
     [[ "$cwd" == "$REPO_DIR" ]] && echo "$pid"
   done
@@ -29,7 +29,7 @@ loop_pids() {
 describe_loops() {
   local pid
   for pid in "$@"; do
-    echo "  pid $pid: $(ps -o command= -p "$pid" 2>/dev/null | sed 's/^.*\(loop\.sh .*\)$/\1/')"
+    echo "  pid $pid: $(ps -o command= -p "$pid" 2>/dev/null | sed -E 's/^.*((loop|cycle)\.sh.*)$/\1/')"
   done
 }
 
