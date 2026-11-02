@@ -22,6 +22,18 @@ declare module 'fastify' {
   }
 }
 
+// Picks the SQLite path: explicit option, then DB_PATH, then the default file. An empty or
+// whitespace-only value counts as unset. `new DatabaseSync('')` would open a temporary
+// database that vanishes on close, so an empty DB_PATH must never reach it (R6).
+export function resolveDbPath(explicit: string | undefined): string {
+  for (const candidate of [explicit, process.env.DB_PATH]) {
+    if (candidate !== undefined && candidate.trim() !== '') {
+      return candidate;
+    }
+  }
+  return DEFAULT_DB_PATH;
+}
+
 // App factory shared by the server entry point and the tests. Tests call
 // buildApp() and drive it with app.inject(), so no real port is bound.
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -42,7 +54,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     frameworkErrors: sendError,
   });
 
-  const db = openDatabase(options.dbPath ?? process.env.DB_PATH ?? DEFAULT_DB_PATH);
+  const db = openDatabase(resolveDbPath(options.dbPath));
   app.decorate('todos', new TodoRepository(db));
   // Closing the app closes its database handle so the file is released.
   app.addHook('onClose', async () => {

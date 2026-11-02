@@ -46,13 +46,6 @@ Each evidence command is run from the repo root as
       one returned) and spec 02 (UI state matches the server). Fix: have `TodoRepository.create`/`update` return the
       row re-read with `get(id)` instead of the in-memory object (see Decisions). Add a regression test that fails
       before the fix (POST body title === GET title for `"a\ud800b"`).
-- [ ] **R6. An empty `DB_PATH` silently uses a throwaway database** (low) — Evidence:
-      `node --input-type=module -e "process.env.DB_PATH = ''; const { buildApp } = await import('./src/app.ts'); const J = { 'content-type': 'application/json' }; let app = buildApp(); await app.inject({ method: 'POST', url: '/api/todos', headers: J, payload: '{\"title\":\"persist me\"}' }); await app.close(); app = buildApp(); const r = await app.inject({ method: 'GET', url: '/api/todos' }); console.log(r.statusCode, r.body); await app.close();"`
-      → `200 []`. `options.dbPath ?? process.env.DB_PATH ?? DEFAULT_DB_PATH` keeps `''`, and `new DatabaseSync('')`
-      opens SQLite's temporary database, which is deleted on close. Expected: spec 01 영속성 (data survives a
-      restart; `DB_PATH` default `./data/todos.db`). Fix: in `buildApp`, treat an empty/whitespace `DB_PATH` (and
-      `dbPath`) as unset and fall back to the default (see Decisions). Add a regression test that fails before the
-      fix (`DB_PATH=''` set via `vi.stubEnv` in a temp cwd or by asserting the resolved path).
 ### REST API
 
 ### Web UI
@@ -111,6 +104,12 @@ Each evidence command is run from the repo root as
 
 ## Done
 
+- **R6. An empty `DB_PATH` used a throwaway database (review 2026-11-02).** `src/app.ts` `resolveDbPath(explicit)`:
+  explicit `dbPath`, then `DB_PATH`, then `data/todos.db`. An empty or whitespace-only value counts as unset.
+  `new DatabaseSync('')` opens a temporary database that is deleted on close, which is why data vanished on restart.
+  Unit tests in `tests/db-path.test.ts` (6 cases) failed before the fix (`resolveDbPath is not a function`). This
+  is a red for a missing function, not a behavioural red, so the behavioural path is covered by the `resolveDbPath`
+  cases for `''`/`'  '`. Decision: see "Empty `DB_PATH` (R6)". `npm run check` is green (209 tests).
 - **R8. Double add created duplicate todos (review 2026-11-02).** `public/app.js` `submit()` ignores a call while a
   create is in flight (`adding` flag, reset in `finally`). The flag is set after validation, so an invalid title
   still shows its hint. A failed add releases the flag, so a retry is sent. Tests in `tests/ui.dom.test.ts`
