@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R20, R22 and R23 are done (R12 red-before-fix not run, see Done). R21 is open. Only the manual smoke
+  review findings R1–R18 and R20–R23 are done (R19 had no finding; R12 red-before-fix not run, see Done). Only the manual smoke
   test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
@@ -45,16 +45,6 @@ Each evidence command is run from the repo root as
 DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
 `node --input-type=module -e "import { Window } from 'happy-dom'; import { readFileSync } from 'node:fs'; import { createApi } from './public/api.js'; import { startApp } from './public/app.js'; const w = new Window({ url: 'http://x.local/' }); const d = w.document; d.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(readFileSync('public/index.html','utf8'))[1].replace(/<script[\s\S]*?<\/script>/g,''); <STUB fetch f>; await startApp({ document: d, window: w, api: createApi(f) }); <STEPS>; await w.happyDOM.close();"`.
 (R19 was used for a review pass with no finding, so numbering continues at R20.)
-
-- [ ] **R21. A stale "제목을 입력하세요." hint stays next to a valid title after a failed add** (low) — Evidence: the
-      script above with a stub fetch (GET → `[]`, anything else → 500 `INTERNAL_ERROR` envelope). Steps: click 추가 on
-      an empty input, then set the input to `'우유 사기'` and click 추가 → printed `hint after empty: "제목을 입력하세요."`
-      then `input: 우유 사기 | hint: "제목을 입력하세요." | banner: 서버 오류가 발생했습니다.`. The same stale hint stays
-      after a successful add when the input changed meanwhile (R14 path). Expected: spec 02 (빈 제목으로 추가 시도 →
-      안내 문구) — the hint describes an empty-title attempt; the submitted title was valid, and the banner already
-      reports the server error. Fix: in `submit()`, clear `hint.textContent` as soon as `validateTitle` passes, before
-      the POST. Add a regression test in `tests/ui.dom.test.ts` (`R21:`: empty submit, then a valid submit whose POST
-      fails → hint is `''`, input keeps the title, banner shows the message) that fails before the fix.
 
 ### REST API
 
@@ -220,6 +210,14 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R21. A stale "제목을 입력하세요." hint stayed next to a valid title after a failed add (review 2026-11-02).**
+  `public/app.js` `submit()` clears `hint.textContent` as soon as `validateTitle` passes, before the POST, so the
+  hint goes whether the POST succeeds or fails. The success-path clear was removed as redundant. Test
+  `tests/ui.dom.test.ts` (`R21:`): empty submit shows the hint, then a valid submit whose POST fails leaves the hint
+  `''`, keeps the input, and shows the banner. Red before the fix (hint `제목을 입력하세요.`), green after. Decision:
+  none needed (no spec choice; spec 02 hint behaviour is unchanged for invalid titles). `npm run check` is green
+  (240 tests).
 
 - **R22. A list response in flight during "완료 항목 삭제" brought the deleted items back (review 2026-11-02).**
   `public/app.js` `clearCompleted` bumps `changes` once `api.clearCompleted()` resolves, before its `loadList()`.

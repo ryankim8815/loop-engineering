@@ -461,6 +461,9 @@ export function startApp({ document, window, api }) {
       hint.textContent = result.message;
       return;
     }
+    // The title is valid, so an earlier empty-title hint no longer describes this attempt. It is
+    // cleared before the POST, so it also goes when the POST fails (R21).
+    hint.textContent = '';
     // On failure the typed title stays in the input, so the user can retry.
     // The input is cleared only if it still holds what was submitted. Text typed while the
     // POST was in flight belongs to the user, not to this add (R14).
@@ -472,7 +475,6 @@ export function startApp({ document, window, api }) {
         commitTodos(upsertTodo(todos, created));
         if (input.value === submitted) {
           input.value = '';
-          hint.textContent = '';
         }
       });
     } finally {

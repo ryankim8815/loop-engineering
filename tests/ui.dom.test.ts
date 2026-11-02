@@ -740,6 +740,34 @@ describe('duplicate add while a create is in flight (R8)', () => {
     ).toEqual([{ title: '우유 사기' }, { title: '빵 사기' }]);
     expect(listTitles(document)).toEqual(['우유 사기', '빵 사기']);
   });
+
+  // The hint describes an empty-title attempt. Once a valid title is submitted, the hint must go,
+  // even when the POST then fails: the banner reports the failure, and the hint would contradict
+  // the title the user typed (R21).
+  it('R21: a failed add with a valid title clears the earlier empty-title hint', async () => {
+    const { document, server } = await mountApp();
+    const input = document.querySelector<HTMLInputElement>('#new-title');
+    const hint = document.querySelector<HTMLElement>('#new-title-hint');
+    const button = document.querySelector<HTMLButtonElement>('#add-button');
+    if (!input || !hint || !button) throw new Error('#new-title, hint or #add-button missing');
+
+    button.click();
+    await flush();
+    expect(hint.textContent).toBe('제목을 입력하세요.');
+
+    server.failNext('POST', {
+      status: 500,
+      code: 'INTERNAL_ERROR',
+      message: '서버 오류가 발생했습니다.',
+    });
+    input.value = '우유 사기';
+    button.click();
+    await flush();
+
+    expect(hint.textContent).toBe('');
+    expect(input.value).toBe('우유 사기');
+    expect(bannerText(document)).toBe('서버 오류가 발생했습니다.');
+  });
 });
 
 describe('out-of-order PATCH responses (R10)', () => {
