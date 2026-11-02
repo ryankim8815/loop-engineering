@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R20 and R23 are done (R12 red-before-fix not run, see Done). R21 and R22 are open. Only the manual smoke
+  review findings R1–R20, R22 and R23 are done (R12 red-before-fix not run, see Done). R21 is open. Only the manual smoke
   test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
@@ -46,18 +46,6 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
 `node --input-type=module -e "import { Window } from 'happy-dom'; import { readFileSync } from 'node:fs'; import { createApi } from './public/api.js'; import { startApp } from './public/app.js'; const w = new Window({ url: 'http://x.local/' }); const d = w.document; d.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(readFileSync('public/index.html','utf8'))[1].replace(/<script[\s\S]*?<\/script>/g,''); <STUB fetch f>; await startApp({ document: d, window: w, api: createApi(f) }); <STEPS>; await w.happyDOM.close();"`.
 (R19 was used for a review pass with no finding, so numbering continues at R20.)
 
-- [ ] **R22. A list response that started before "완료 항목 삭제" brings the deleted items back** (medium) — Evidence:
-      the DOM script above with server `[A completed, B active]` and a stub fetch where the first GET snapshots the
-      server and is held, later GETs answer at once, and `DELETE ?completed=true` removes completed items and returns
-      `{deleted:n}`. Steps: `startApp(...)` (do not await), click `#clear-completed`, flush, print, then release the
-      first GET and flush → printed `after clear: B | server: B` then `after stale GET: A,B | 1개 남음 | server: B |
-      gets: 2`. The same happens to a `resync()` GET that is in flight when the clear runs. Cause: `clearCompleted`
-      changes the server but does not bump `changes`, so the older `loadList()` sees `started === changes` and
-      overwrites the fresh list (the R5 guard misses this action). Expected: spec 02 (API 오류 → 화면 상태를 서버와 다시
-      맞춘다; 완료 항목 삭제) — the screen must not show items the server already deleted. Fix: in `clearCompleted`,
-      bump `changes` once `api.clearCompleted()` resolves (before its `loadList()`), so every list request that
-      started earlier is fetched again. Add a regression test in `tests/ui.dom.test.ts` (`R22:`: hold the first GET,
-      clear, release → titles `['B']`, `1개 남음`) that fails before the fix.
 - [ ] **R21. A stale "제목을 입력하세요." hint stays next to a valid title after a failed add** (low) — Evidence: the
       script above with a stub fetch (GET → `[]`, anything else → 500 `INTERNAL_ERROR` envelope). Steps: click 추가 on
       an empty input, then set the input to `'우유 사기'` and click 추가 → printed `hint after empty: "제목을 입력하세요."`
@@ -232,6 +220,14 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R22. A list response in flight during "완료 항목 삭제" brought the deleted items back (review 2026-11-02).**
+  `public/app.js` `clearCompleted` bumps `changes` once `api.clearCompleted()` resolves, before its `loadList()`.
+  A list request that started earlier now sees a changed counter and fetches again, so its old snapshot cannot
+  overwrite the fresh list (the R5 guard missed this action because it never counted the bulk delete). Test
+  `tests/ui.dom.test.ts` (`R22:`): the initial GET is held, the clear runs, the GET is released; titles `['B']`,
+  `1개 남음`. Red before the fix (`['A', 'B']`), green after. Decision: no spec choice; the counter is bumped only
+  after the server accepts the delete, so a failed clear changes nothing. `npm run check` is green (239 tests).
 
 - **R20. Keyboard focus fell to `<body>` when the focused item left the list (review 2026-11-02).** `public/app.js`
   `render()` records the old DOM index of the focused item. When that item is no longer shown, `focusControl` focuses

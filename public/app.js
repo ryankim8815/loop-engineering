@@ -440,9 +440,12 @@ export function startApp({ document, window, api }) {
 
   // The server decides which items the bulk delete removed (R12). Local completed flags can be
   // stale while a toggle is in flight, so the list is re-fetched instead of filtered locally.
+  // The change is counted once the server accepts it, so a list request that started before it
+  // is fetched again and cannot overwrite the re-fetch with the old items (R22).
   function clearCompleted() {
     return perform(async () => {
       await api.clearCompleted();
+      changes += 1;
       await loadList();
     });
   }

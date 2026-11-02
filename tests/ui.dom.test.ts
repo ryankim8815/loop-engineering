@@ -958,6 +958,54 @@ describe('clear completed while a toggle is in flight (R12)', () => {
   });
 });
 
+describe('a list response in flight during clear completed (R22)', () => {
+  // The first GET (the initial load) snapshots the server before the clear and is held. The clear
+  // then deletes the completed item on the server, and its re-fetch sees only B. Releasing the held
+  // GET delivers the old snapshot last. The old snapshot must not overwrite the fresh list, or the
+  // screen shows A, which the server already deleted.
+  it('R22: a stale initial-load response released after the clear does not bring the deleted item back', async () => {
+    loadIndexBody();
+    const itemA: Todo = {
+      ...existing,
+      id: '22222222-2222-4222-8222-222222222222',
+      title: 'A',
+      completed: true,
+    };
+    const itemB: Todo = {
+      ...existing,
+      id: '33333333-3333-4333-8333-333333333333',
+      title: 'B',
+    };
+    const server = createFakeServer([itemA, itemB]);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let heldGet = false;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'GET' || heldGet) return server.fetch(input, init);
+      heldGet = true;
+      const response = await server.fetch(input, init);
+      await gate;
+      return response;
+    }) as typeof fetch;
+    const started = startApp({ document, window, api: createApi(fetchImpl) });
+    await settle();
+
+    document.querySelector<HTMLButtonElement>('#clear-completed')?.click();
+    await settle();
+    expect(listTitles(document)).toEqual(['B']);
+
+    release();
+    await started;
+    await settle();
+
+    expect(server.todos.map((todo) => todo.title)).toEqual(['B']);
+    expect(listTitles(document)).toEqual(['B']);
+    expect(remainingText(document)).toBe('1개 남음');
+  });
+});
+
 describe('a repeated action while a DELETE is in flight (R16)', () => {
   // Every DELETE is applied by the server at once, and only its response is held until release().
   // Before the fix, a second click on 삭제 (or a toggle of the same item) sent a request for an item
