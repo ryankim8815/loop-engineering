@@ -1161,6 +1161,75 @@ describe('keyboard focus after a re-render (R18)', () => {
   });
 });
 
+describe('focus when the focused item leaves the list (R20)', () => {
+  const item = (name: string, completed = false): Todo => ({
+    id: `r20-${name}`,
+    title: name,
+    completed,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  afterEach(() => {
+    window.location.hash = '';
+  });
+
+  it('R20: deleting the middle item moves focus to 삭제 on the item that takes its place', async () => {
+    const { document } = await mountApp([item('a'), item('b'), item('c')]);
+    const remove = itemFor(document, 'b').querySelector<HTMLButtonElement>('.todo-delete');
+    remove?.focus();
+
+    remove?.click();
+    await settle();
+
+    expect(listTitles(document)).toEqual(['a', 'c']);
+    expect(document.activeElement).toBe(
+      itemFor(document, 'c').querySelector<HTMLButtonElement>('.todo-delete'),
+    );
+  });
+
+  it('R20: deleting the last item moves focus to 삭제 on the previous item', async () => {
+    const { document } = await mountApp([item('a'), item('b')]);
+    const remove = itemFor(document, 'b').querySelector<HTMLButtonElement>('.todo-delete');
+    remove?.focus();
+
+    remove?.click();
+    await settle();
+
+    expect(listTitles(document)).toEqual(['a']);
+    expect(document.activeElement).toBe(
+      itemFor(document, 'a').querySelector<HTMLButtonElement>('.todo-delete'),
+    );
+  });
+
+  it('R20: deleting the only item moves focus to the add input', async () => {
+    const { document } = await mountApp([item('a')]);
+    const remove = itemFor(document, 'a').querySelector<HTMLButtonElement>('.todo-delete');
+    remove?.focus();
+
+    remove?.click();
+    await settle();
+
+    expect(listTitles(document)).toEqual([]);
+    expect(document.activeElement).toBe(document.getElementById('new-title'));
+  });
+
+  it('R20: toggling an item out of the 진행 중 filter moves focus to the next item’s checkbox', async () => {
+    window.location.hash = '#/active';
+    const { document } = await mountApp([item('a'), item('b'), item('c')]);
+    const toggle = itemFor(document, 'a').querySelector<HTMLInputElement>('.todo-toggle');
+    toggle?.focus();
+
+    toggle?.click();
+    await settle();
+
+    expect(listTitles(document)).toEqual(['b', 'c']);
+    expect(document.activeElement).toBe(
+      itemFor(document, 'b').querySelector<HTMLInputElement>('.todo-toggle'),
+    );
+  });
+});
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flush();

@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R18 and R23 are done (R12 red-before-fix not run, see Done). R20, R21 and R22 are open. Only the manual smoke
+  review findings R1–R20 and R23 are done (R12 red-before-fix not run, see Done). R21 and R22 are open. Only the manual smoke
   test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
@@ -46,18 +46,6 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
 `node --input-type=module -e "import { Window } from 'happy-dom'; import { readFileSync } from 'node:fs'; import { createApi } from './public/api.js'; import { startApp } from './public/app.js'; const w = new Window({ url: 'http://x.local/' }); const d = w.document; d.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(readFileSync('public/index.html','utf8'))[1].replace(/<script[\s\S]*?<\/script>/g,''); <STUB fetch f>; await startApp({ document: d, window: w, api: createApi(f) }); <STEPS>; await w.happyDOM.close();"`.
 (R19 was used for a review pass with no finding, so numbering continues at R20.)
 
-- [ ] **R20. Keyboard focus falls to `<body>` when the focused item leaves the list** (medium) — Evidence: the script
-      above with 3 seeded active todos, a stub fetch (GET → the list, DELETE → 204, PATCH → the first todo with
-      `completed: true` and a newer `updatedAt`). Steps: focus item 2's 삭제 and `.click()` → printed
-      `before: 삭제: t2` then `after delete: BODY 2`. Then set `#/active`, focus item 1's checkbox and `.click()` →
-      `after toggle in active filter: BODY 1`. Expected: spec 02 접근성 ("모든 컨트롤은 키보드만으로 조작 가능"). A keyboard
-      user must Tab from the top of the page after every delete, and after every toggle under 진행 중/완료. R18 left
-      this case open ("a later item can decide"). Fix: in `render()`, when the recorded `control` belongs to an item
-      that is no longer shown, focus the same control class on the item that now sits at the old index (else the
-      previous one), and fall back to `#new-title` when the list is empty. See decision "Focus when the item leaves
-      the list (R20)". Add regression tests in `tests/ui.dom.test.ts` (`R20:`: delete the middle item → next item's
-      삭제 is focused; delete the last remaining item → `#new-title` is focused; toggle under `#/active` → the next
-      item's checkbox is focused) that fail before the fix.
 - [ ] **R22. A list response that started before "완료 항목 삭제" brings the deleted items back** (medium) — Evidence:
       the DOM script above with server `[A completed, B active]` and a stub fetch where the first GET snapshots the
       server and is held, later GETs answer at once, and `DELETE ?completed=true` removes completed items and returns
@@ -195,7 +183,8 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
 - **Focus after a re-render (R18, review 2026-11-02).** Spec 02 requires keyboard-only operation but does not say
   where focus goes after an action. Chosen: keep focus on the same control of the same item when it is still shown,
   and on the item's 수정 button when an inline edit ends (Enter/Esc). When the item is gone (delete, filter), focus
-  is not moved (a later item can decide). Rejected: leaving focus to the browser (it falls to `<body>`, which forces
+  is not moved (a later item can decide). **Superseded for the item-gone case by R20** (focus moves to the item now at
+  the old position). Rejected: leaving focus to the browser (it falls to `<body>`, which forces
   a keyboard user to restart from the top) and moving focus to the add input (unrelated to the action). Severity
   medium, not high: every control stays reachable, but each action costs a full Tab walk.
 - **Review scope (review 2026-11-02, R18 pass).** Also behaved per spec 01 and not recorded: GET with
@@ -243,6 +232,14 @@ DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R20. Keyboard focus fell to `<body>` when the focused item left the list (review 2026-11-02).** `public/app.js`
+  `render()` records the old DOM index of the focused item. When that item is no longer shown, `focusControl` focuses
+  the same control class on the item now at that index (clamped to the last one, so the previous item after a removal
+  at the end), and focuses `#new-title` when the list is empty. Tests in `tests/ui.dom.test.ts`
+  (`R20:` ×4: delete middle → next item's 삭제; delete last → previous item's 삭제; delete only item → `#new-title`;
+  toggle under `#/active` → next item's checkbox). Red before the fix: all 4 failed (focus on `<body>`). Decision: see
+  "Focus when the item leaves the list (R20)". `npm run check` is green (238 tests).
 
 - **R23. An empty `PORT` or `HOST` listened on a random port / on every interface (review 2026-11-02).** New
   `src/config.ts` `resolveListenOptions(env)`: an empty or whitespace-only `PORT` or `HOST` counts as unset, so the

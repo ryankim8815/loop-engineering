@@ -191,6 +191,13 @@ export function startApp({ document, window, api }) {
     const caret = hadFocus ? [previous.selectionStart, previous.selectionEnd] : undefined;
     // Rebuilding the list detaches the focused control, and focus would fall to <body> (R18).
     const control = focusTarget ?? focusedControl();
+    // Where the focused item sat before the rebuild. If it leaves the list, focus moves to the
+    // item now in that position (R20). -1 when the item was not in the list.
+    const oldIndex = control
+      ? [...list.children].findIndex(
+          (li) => /** @type {HTMLElement} */ (li).dataset.id === control.id,
+        )
+      : -1;
     focusTarget = null;
     if (editing && !visible.some((todo) => todo.id === editing?.id)) {
       editing = null;
@@ -206,7 +213,7 @@ export function startApp({ document, window, api }) {
       editing.element.focus();
       editing.element.setSelectionRange(caret[0], caret[1]);
     } else if (control) {
-      focusControl(control);
+      focusControl(control, oldIndex);
     }
     remaining.textContent = `${countRemaining(todos)}개 남음`;
     renderFilterLinks();
@@ -226,10 +233,23 @@ export function startApp({ document, window, api }) {
   }
 
   // Focuses the same control of the same item in the rebuilt list. If the item is no longer
-  // shown (deleted or filtered out), focus is left alone (R18).
-  /** @param {{ id: string, className: string }} control */
-  function focusControl({ id, className }) {
-    const item = [...list.children].find((li) => /** @type {HTMLElement} */ (li).dataset.id === id);
+  // shown (deleted or filtered out), focus moves to the same control class on the item now at
+  // its old position, else the previous item. An empty list focuses the add input (R20).
+  /**
+   * @param {{ id: string, className: string }} control
+   * @param {number} oldIndex position of the item before the rebuild, or -1
+   */
+  function focusControl({ id, className }, oldIndex) {
+    const items = /** @type {HTMLElement[]} */ ([...list.children]);
+    let item = items.find((li) => li.dataset.id === id);
+    if (!item) {
+      if (items.length === 0) {
+        input.focus();
+        return;
+      }
+      if (oldIndex < 0) return;
+      item = items[Math.min(oldIndex, items.length - 1)];
+    }
     const target = /** @type {HTMLElement | null | undefined} */ (
       item?.querySelector(`.${className}`)
     );
