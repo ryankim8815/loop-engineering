@@ -18,7 +18,7 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R14 and R16 are done (R12 red-before-fix not run, see Done); R15 is open. Only the manual smoke test is blocked (see "Blocked").
+  review findings R1–R16 are done (R12 red-before-fix not run, see Done). Only the manual smoke test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
   - 01: a browser opening an unknown path gets the raw **JSON 404**; no HTML error page.
@@ -39,18 +39,7 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
-- [ ] **R15. After a failed first load, a successful action hides the banner but the list stays out of sync**
-      (medium) — Evidence: a node script with happy-dom (`new Window()`, index.html body, `startApp` with a fetch
-      whose first GET rejects with `TypeError('fetch failed')` and a server seeded with `seed1`, `seed2`), then
-      type `new` and click 추가 → printed `after failed load banner: "서버에 연결할 수 없습니다. 연결을 확인해 주세요."`
-      / `banner: "" hidden: true` / `list: ["new"] 1개 남음` / `server: ["seed1","seed2","new"]`. The error is
-      cleared, but the two seeded items and the counter stay wrong until a page reload (only failures and 완료 항목
-      삭제 re-fetch). Expected: spec 02 "API 오류 → 오류 메시지를 표시하고 화면 상태를 서버와 다시 맞춘다" / AC-UI-8.
-      Fix: in `public/app.js`, remember that no list has loaded yet (`loaded = false` until `loadList()` succeeds),
-      and in `perform` after a successful action re-fetch with `loadList()` while `loaded` is false (on failure keep
-      the banner; no timer or retry loop). Add a DOM regression test in `tests/ui.dom.test.ts` (`R15:`,
-      `failNext('GET', 'network')` before start, seed 2 items, add one, expect 3 titles and `3개 남음`) that fails
-      before the fix. Decision: see "Resync after a failed first load (R15)".
+(none open; R15 is in Done.)
 
 ### REST API
 
@@ -136,11 +125,15 @@ Each evidence command is run from the repo root as
   id → 404; `filter=all&filter=all` and `completed=TRUE` → 400; `filter[]=all` and `FILTER=active` are unknown
   params and ignored (200); a GET with an invalid JSON body is ignored (200). Titles render via `textContent` and
   `setAttribute`, so no HTML injection path was found.
-- **Resync after a failed first load (R15, review 2026-11-02).** Spec 02 says an API error must end with the screen
-  matching the server, but item 16 chose not to retry a failed first load (no loop against a dead server). Chosen:
-  keep that (no automatic retry or timer), and re-fetch the list after the next action the server accepts, because
-  that proves the server is back. Rejected: a timed retry loop (adds behaviour the spec does not describe), and
-  today's behaviour (the banner is cleared while the list is missing server items).
+- **Resync after a failed list fetch (R15, review 2026-11-02; trigger narrowed 2026-11-02 in the R15 run).** Spec 02
+  says an API error must end with the screen matching the server, but item 16 chose not to retry a failed load (no
+  loop against a dead server). Chosen: keep that (no automatic retry or timer), and re-fetch the list after the next
+  action the server accepts, because that proves the server is back. The R15 plan said "after a failed first load,"
+  but the first version tracked "no list loaded yet" and broke the R5 test: a first load that is still pending
+  would then also trigger an extra GET. Chosen instead: `listStale` is set when any list fetch fails and cleared when
+  one succeeds, so the re-fetch covers a failed first load and a failed resync alike, and never fires during a
+  pending load. Rejected: a timed retry loop (adds behaviour the spec does not describe), today's behaviour (the
+  banner is cleared while the list is missing server items), and "no list loaded yet" (breaks R5).
 - **In-flight delete guard (R16, review 2026-11-02).** Spec 02 does not cover repeated clicks on 삭제. Chosen:
   silently ignore a delete, toggle or edit on an item whose DELETE is still pending (no request, no banner). This
   matches the R8 add guard. Rejected: disabling the buttons (adds visible UI states spec 02 does not describe), and
@@ -158,6 +151,14 @@ Each evidence command is run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R15. A successful action after a failed first load left the list out of sync (review 2026-11-02).** `public/app.js`
+  sets `listStale` when `loadList()` fails and clears it when a list fetch succeeds. `perform` re-fetches after a
+  successful action while `listStale` is set (the banner still clears first). A failed re-fetch keeps the banner and does
+  not retry. Test `tests/ui.dom.test.ts` (`R15:`): the first GET fails, the server is seeded with 2 items, and one add
+  is made. Before the fix the list showed `['new']` (`1개 남음`). It now shows `['seed1','seed2','new']` (`3개 남음`),
+  with no banner. Decision: see "Resync after a failed list fetch (R15)". The narrowed trigger is a deliberate deviation
+  from the plan's "not loaded yet" wording. `npm run check` is green (224 tests).
 
 - **R16. Double-clicking 삭제 showed a false error banner (review 2026-11-02).** `public/app.js` keeps a `deleting` set
   of ids whose DELETE is in flight. `removeTodo` ignores an id already in the set, and `setCompleted` and `startEdit`

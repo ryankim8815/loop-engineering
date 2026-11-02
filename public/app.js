@@ -100,6 +100,11 @@ export function startApp({ document, window, api }) {
   // latest change may not include it, so it is fetched again rather than trusted (R5).
   let changes = 0;
 
+  // True after a list fetch failed, until one succeeds. The local list may then differ from the
+  // server, so the next action the server accepts re-fetches it (R15). A first load that is
+  // still pending does not set it, because that load will fetch the list itself.
+  let listStale = false;
+
   /** @param {Todo[]} next */
   function commitTodos(next) {
     todos = next;
@@ -110,15 +115,21 @@ export function startApp({ document, window, api }) {
   // Replaces local state with a fresh list. If a change landed while the request was in
   // flight, the response may be older than that change, so the list is requested again.
   // Each retry starts after a change, so the loop ends once the user stops changing things.
-  // Errors propagate to the caller.
+  // Errors propagate to the caller, and mark the list stale (R15).
   async function loadList() {
     let started;
     let loaded;
-    do {
-      started = changes;
-      loaded = await api.list('all');
-    } while (started !== changes);
+    try {
+      do {
+        started = changes;
+        loaded = await api.list('all');
+      } while (started !== changes);
+    } catch (error) {
+      listStale = true;
+      throw error;
+    }
     todos = loaded;
+    listStale = false;
     render();
   }
 
@@ -135,12 +146,16 @@ export function startApp({ document, window, api }) {
   // Every API action goes through here (AC-UI-8). Local state changes only after the server
   // accepted the request. On failure the list is re-rendered from local state, which undoes
   // an optimistic checkbox flip, then the message is shown and the list is re-fetched, so the
-  // DOM matches the server again. The returned promise never rejects, so no call site leaks an
-  // unhandled rejection.
+  // DOM matches the server again. On success the banner clears, and if the list is stale
+  // (a list fetch failed earlier), it is re-fetched now that the server has accepted an action
+  // (R15). The returned promise never rejects, so no call site leaks an unhandled rejection.
   async function perform(action) {
     try {
       await action();
       clearError();
+      if (listStale) {
+        await resync();
+      }
     } catch (error) {
       render();
       showError(errorMessage(error));

@@ -1018,6 +1018,37 @@ describe('a repeated action while a DELETE is in flight (R16)', () => {
   });
 });
 
+describe('a successful action after a failed first load (R15)', () => {
+  // The first GET fails, so the list is never loaded and the banner shows. Before the fix, the
+  // next successful add cleared the banner but kept the empty local list: the two seeded items
+  // and the counter stayed wrong until a reload. Spec 02: an API error must end with the screen
+  // matching the server. The fix re-fetches the list after the first action the server accepts.
+  it('R15: the add that clears the banner also re-fetches, so the seeded items show again', async () => {
+    const seed1 = { ...existing, id: '44444444-4444-4444-8444-444444444441', title: 'seed1' };
+    const seed2 = { ...existing, id: '44444444-4444-4444-8444-444444444442', title: 'seed2' };
+    const { document, server } = await mountApp([seed1, seed2], (server) => {
+      server.failNext('GET', 'network');
+    });
+    expect(bannerText(document)).toBe(NETWORK_MESSAGE);
+    expect(listTitles(document)).toEqual([]);
+
+    const input = document.querySelector<HTMLInputElement>('#new-title');
+    if (!input) throw new Error('#new-title missing');
+    input.value = 'new';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await settle();
+
+    expect(bannerShown(document)).toBe(false);
+    expect(listTitles(document)).toEqual(['seed1', 'seed2', 'new']);
+    expect(remainingText(document)).toBe('3개 남음');
+    expect(server.requests.at(-1)).toEqual({
+      method: 'GET',
+      url: '/api/todos?filter=all',
+      body: undefined,
+    });
+  });
+});
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) {
     await flush();
