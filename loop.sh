@@ -18,8 +18,9 @@
 #   RALPH_PUSH=1                git push after every iteration
 #
 # Exit codes: 0 COMPLETE · 10 max iterations · 2 no progress · 20 stop requested · 30 total budget
-#             1 claude kept failing · 130 Ctrl+C
-# The last run's mode, exit code, iterations and cost are written to .ralph/last-run (read by cycle.sh).
+#             40 usage limit reached · 1 claude kept failing · 130 Ctrl+C
+# The last run's mode, exit code, iterations, cost and any usage limit are written to .ralph/last-run
+# (read by cycle.sh).
 #
 # Graceful stop (after the current iteration): ./stop.sh  (or touch .ralph/STOP)
 set -euo pipefail
@@ -100,6 +101,8 @@ iteration=0
 no_progress=0
 failures=0
 total_cost=0
+limit_msg=""
+limit_reset=""
 
 summary() {
   echo
@@ -113,10 +116,21 @@ summary() {
 # Every exit goes through here so the summary and .ralph/last-run are always written.
 finish() {
   summary
-  printf 'mode=%s\nexit=%s\niterations=%s\ncost=%s\n' "$MODE" "$1" "$iteration" "$total_cost" > "$LAST_RUN"
+  printf 'mode=%s\nexit=%s\niterations=%s\ncost=%s\nlimit=%s\nresets_at=%s\n' \
+    "$MODE" "$1" "$iteration" "$total_cost" "$limit_msg" "$limit_reset" > "$LAST_RUN"
   exit "$1"
 }
 trap 'finish 130' INT
+
+# A usage limit (HTTP 429) lasts hours, so retrying it like a crash only burns the retries.
+# Sets $limit_msg and, when the log reports it, $limit_reset (epoch seconds).
+usage_limited() {
+  limit_msg="$(jq -Rr 'fromjson? | select(.type == "result" and .api_error_status == 429)
+    | .result // "usage limit reached"' "$log" | tail -n 1)"
+  [[ -n "$limit_msg" ]] || return 1
+  limit_reset="$(jq -Rr 'fromjson? | select(.type == "rate_limit_event" and .rate_limit_info.status == "rejected")
+    | .rate_limit_info.resetsAt // empty' "$log" | tail -n 1)"
+}
 
 changed_besides_plan() {
   git status --porcelain -- . ':(exclude)IMPLEMENTATION_PLAN.md'
@@ -170,6 +184,13 @@ while :; do
   cost="$(jq -Rr 'fromjson? | select(.type == "result") | .total_cost_usd // 0' "$log" | tail -n 1)"
   total_cost="$(awk -v a="$total_cost" -v b="${cost:-0}" 'BEGIN { printf "%.4f", a + b }')"
 
+  if usage_limited; then
+    echo; echo "stopping: $limit_msg"
+    if [[ -n "$limit_reset" ]]; then
+      echo "resets at:   $(date -r "$limit_reset" '+%Y-%m-%d %H:%M' 2>/dev/null || date -d "@$limit_reset" '+%Y-%m-%d %H:%M')"
+    fi
+    finish 40
+  fi
   if (( status != 0 )); then
     failures=$((failures + 1))
     echo "claude exited with status $status (consecutive failures: $failures)" >&2

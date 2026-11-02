@@ -268,7 +268,8 @@ vitest run      → Test Files 1 passed (1) · Tests 3 passed (3)
 | 완료 감지 | 결과에 `<promise>COMPLETE</promise>`가 있으면 종료. **build는 `loop.sh`가 `npm run check`를 직접 다시 돌리고 미커밋 변경이 없을 때만 인정** (자기 선언을 그대로 믿지 않음) |
 | 자율 모드 | `RALPH_AUTONOMOUS=1`이면 `PROMPT_autonomy.md`를 시스템 프롬프트에 덧붙임. 프롬프트 파일은 그대로라 사람이 지켜보는 실행에는 영향 없음 ([5.6](#56-무인-사이클--cyclesh)) |
 | 전체 예산 | `RALPH_TOTAL_BUDGET_USD`에 도달하면 다음 반복을 시작하지 않고 종료 (exit 30) |
-| 종료 코드 | `0` COMPLETE · `10` 반복 상한 · `2` 무진척 · `20` 중단 요청 · `30` 예산 · `1` 연속 실패 · `130` Ctrl+C. 마지막 실행 결과는 `.ralph/last-run`에 기록 |
+| 종료 코드 | `0` COMPLETE · `10` 반복 상한 · `2` 무진척 · `20` 중단 요청 · `30` 예산 · `40` 사용량 한도 · `1` 연속 실패 · `130` Ctrl+C. 마지막 실행 결과(한도 메시지·해제 시각 포함)는 `.ralph/last-run`에 기록 |
+| 사용량 한도 | 반복 결과가 HTTP 429(예: 5시간 한도)이면 재시도하지 않고 즉시 종료 (exit 40). 한도 메시지와, 로그에 있으면 해제 시각을 출력. 몇 시간짜리 한도를 30s·60s 재시도로 기다리면 실패 3회로 끝날 뿐이기 때문 |
 | 진척 감지(서킷 브레이커) | build 모드에서 새 커밋 없는 반복이 연속 3회면 종료 (exit 2) |
 | 실패 재시도 | `claude`가 비정상 종료하면 30s·60s 대기 후 재시도, 연속 3회 실패 시 종료 |
 | 비용 집계 | 반복별 `total_cost_usd`를 합산해 마지막에 출력 |
@@ -467,6 +468,7 @@ RALPH_TOTAL_BUDGET_USD=10 RALPH_CYCLE_BRANCH=1 ./cycle.sh 3 10 1
 | 한 세트 동안 새 커밋 0개 + 새 R 항목 0개 | 전체 종료 (exit 2) |
 | 누적 비용이 예산 이상 | 다음 단계를 시작하지 않고 종료 (exit 30) |
 | `stop.sh` / 연속 실패 / Ctrl+C | 즉시 종료 (exit 20 / 1 / 130) |
+| 사용량 한도 (`loop.sh` exit 40) | 즉시 종료 (exit 40). 요약의 `stopped:`에 해제 시각을 표시하고, 그때까지 review가 기록한 계획 변경은 커밋. 해제 후 다시 실행 |
 | 세트 수 소진 | 종료 (exit 10) |
 | 마지막 review의 계획 변경이 커밋되지 않음 | `cycle.sh`가 `review: record findings`로 커밋 (Ctrl+C 때는 제외) |
 
@@ -492,7 +494,7 @@ stopped:     converged: build COMPLETE, review found nothing new, no open R item
 
 중단은 `./stop.sh`로 합니다. `stop.sh`는 `cycle.sh`도 찾아내며, 실행 중인 `loop.sh` 반복이 끝나면 사이클 전체가 멈춥니다.
 
-**가짜 `claude`로 검증한 종료 경로** — 수렴(0), 열린 R 항목이 남은 COMPLETE는 수렴으로 보지 않음, 세트 상한(10), 무진척(2), 두 세트 연속 무진척(2), 예산(30), 중단 요청(20), `npm run check` 실패 시 COMPLETE 거부. 자율 규칙은 사이클 안의 호출에만 붙고, 심각도 제한은 2세트째 review에만 붙는 것도 확인했습니다. 실제 모델로 사이클을 돌려 보지는 않았습니다.
+**가짜 `claude`로 검증한 종료 경로** — 수렴(0), 열린 R 항목이 남은 COMPLETE는 수렴으로 보지 않음, 사용량 한도(40), 세트 상한(10), 무진척(2), 두 세트 연속 무진척(2), 예산(30), 중단 요청(20), `npm run check` 실패 시 COMPLETE 거부. 자율 규칙은 사이클 안의 호출에만 붙고, 심각도 제한은 2세트째 review에만 붙는 것도 확인했습니다. 실제 모델로 사이클을 돌려 보지는 않았습니다.
 
 ---
 

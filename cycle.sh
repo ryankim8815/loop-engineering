@@ -15,7 +15,7 @@
 # (converged), when a set produces neither a commit nor a finding, when build makes no progress in two sets in a row, or on
 # budget / stop request / failure.
 # Exit codes: 0 converged · 10 max sets · 2 stuck or no progress · 20 stop requested · 30 budget
-#             1 claude kept failing · 130 Ctrl+C
+#             40 usage limit reached · 1 claude kept failing · 130 Ctrl+C
 #
 # Graceful stop (after the current loop.sh iteration): ./stop.sh
 set -uo pipefail
@@ -48,6 +48,7 @@ cycle=0
 reason=""
 code=10
 report=()
+limit_note=""
 
 # Unchecked R items outside "## Blocked": a blocked finding waits for a human and must not hold up convergence.
 open_findings() {
@@ -78,6 +79,12 @@ run_phase() {
   phase_exit=$?
   if [[ -f "$LAST_RUN" ]]; then
     add_cost "$(sed -n 's/^cost=//p' "$LAST_RUN")"
+    local resets
+    resets="$(sed -n 's/^resets_at=//p' "$LAST_RUN")"
+    limit_note="$(sed -n 's/^limit=//p' "$LAST_RUN")"
+    if [[ -n "$resets" ]]; then
+      limit_note="resets $(date -r "$resets" '+%Y-%m-%d %H:%M' 2>/dev/null || date -d "@$resets" '+%Y-%m-%d %H:%M')"
+    fi
   fi
 }
 
@@ -87,6 +94,7 @@ fatal_reason() {
     1) echo "claude kept failing" ;;
     20) echo "stop requested" ;;
     30) echo "budget spent" ;;
+    40) echo "usage limit reached${limit_note:+ — $limit_note}; re-run after the reset" ;;
     130) echo "interrupted" ;;
     0 | 2 | 10) ;;
     *) echo "loop.sh exited with $1" ;;
@@ -132,7 +140,7 @@ add_row() {
 label() {
   case "$1" in
     0) echo COMPLETE ;; 10) echo max ;; 2) echo "no progress" ;; 20) echo stopped ;; 30) echo budget ;;
-    1) echo failed ;; 130) echo interrupted ;; *) echo "exit $1" ;;
+    40) echo limit ;; 1) echo failed ;; 130) echo interrupted ;; *) echo "exit $1" ;;
   esac
 }
 
