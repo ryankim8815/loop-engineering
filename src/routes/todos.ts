@@ -54,8 +54,8 @@ export function registerTodoRoutes(app: FastifyInstance): void {
     return todo;
   });
 
-  // 204 with an empty body. Requests need no Content-Type or body (the UI client
-  // sends none for DELETE, and a stray empty JSON body would be a 400 from Fastify).
+  // 204 with an empty body. Any Content-Type or body is ignored: an onRequest hook in
+  // app.ts strips body headers from DELETE requests before parsing (R13).
   app.delete<{ Params: { id: string } }>('/api/todos/:id', async (request, reply) => {
     if (!app.todos.remove(request.params.id)) {
       throw notFound();

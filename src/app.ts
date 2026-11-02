@@ -66,6 +66,18 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   // which the error handler maps to 400 VALIDATION_ERROR.
   app.removeContentTypeParser('text/plain');
 
+  // DELETE takes its input from the path and query only (spec 01), and many clients send
+  // `Content-Type: application/json` on every request. Drop the headers that describe a
+  // body before Fastify parses it, so a DELETE with any headers or body is not refused
+  // with 400 (R13). The body bytes are never read, so they are discarded.
+  app.addHook('onRequest', async (request) => {
+    if (request.method === 'DELETE') {
+      delete request.headers['content-type'];
+      delete request.headers['content-length'];
+      delete request.headers['transfer-encoding'];
+    }
+  });
+
   app.get('/api/health', async () => ({ status: 'ok' }));
   registerTodoRoutes(app);
 

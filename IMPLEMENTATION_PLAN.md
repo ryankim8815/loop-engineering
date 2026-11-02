@@ -39,6 +39,41 @@ Conventions for every item:
 Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
+- [ ] **R14. An add that resolves late wipes the title the user typed meanwhile** (medium) — Evidence: a node
+      script with happy-dom (`new Window()`, index.html body, `startApp` with a fetch that holds the POST): type
+      `우유 사기`, click 추가, set the input to `빵 사기` while the POST is held, release → printed
+      `before release: "빵 사기"` / `after release: "" list: ["우유 사기"]`. The new text is lost without notice (and
+      R8's guard has already ignored an Enter on it). Expected: spec 02 "추가되고 입력창이 비워진다" clears the
+      submitted title, not text typed after it. Fix: in `public/app.js` `submit()`, on success clear the input
+      (and the hint) only if `input.value` still equals the raw value that was submitted. Add a DOM regression test
+      in `tests/ui.dom.test.ts` (`R14:`, held POST as in R8) that fails before the fix; keep the R8 test that
+      expects `''` when nothing was typed.
+
+- [ ] **R15. After a failed first load, a successful action hides the banner but the list stays out of sync**
+      (medium) — Evidence: a node script with happy-dom (`new Window()`, index.html body, `startApp` with a fetch
+      whose first GET rejects with `TypeError('fetch failed')` and a server seeded with `seed1`, `seed2`), then
+      type `new` and click 추가 → printed `after failed load banner: "서버에 연결할 수 없습니다. 연결을 확인해 주세요."`
+      / `banner: "" hidden: true` / `list: ["new"] 1개 남음` / `server: ["seed1","seed2","new"]`. The error is
+      cleared, but the two seeded items and the counter stay wrong until a page reload (only failures and 완료 항목
+      삭제 re-fetch). Expected: spec 02 "API 오류 → 오류 메시지를 표시하고 화면 상태를 서버와 다시 맞춘다" / AC-UI-8.
+      Fix: in `public/app.js`, remember that no list has loaded yet (`loaded = false` until `loadList()` succeeds),
+      and in `perform` after a successful action re-fetch with `loadList()` while `loaded` is false (on failure keep
+      the banner; no timer or retry loop). Add a DOM regression test in `tests/ui.dom.test.ts` (`R15:`,
+      `failNext('GET', 'network')` before start, seed 2 items, add one, expect 3 titles and `3개 남음`) that fails
+      before the fix. Decision: see "Resync after a failed first load (R15)".
+
+- [ ] **R16. Double-clicking 삭제 shows a false error banner** (medium) — Evidence: a node script with happy-dom
+      (`new Window()`, index.html body, `startApp` with a fetch that forwards to `buildApp({ dbPath: ':memory:' })`
+      via `app.inject()` and holds each DELETE response; one seeded todo `우유 사기`), then `btn.click(); btn.click()`
+      on `.todo-delete` before releasing → printed `DELETE -> 204` / `DELETE -> 404` / `banner: "요청한 리소스를 찾을
+      수 없습니다." hidden: false list: []`. The delete worked, but the user sees an error for it. The same happens
+      when the item's checkbox is toggled while its DELETE is in flight (PATCH → 404). Expected: spec 02 "삭제 버튼 →
+      해당 항목이 사라진다". One delete action must not report an API error. Fix: in `public/app.js`, keep a set of
+      ids whose DELETE is in flight. `removeTodo` ignores an id already in the set, and `setCompleted`/`startEdit`
+      ignore it too. Remove the id in `finally`. Add a DOM regression test in `tests/ui.dom.test.ts` (`R16:`, DELETE
+      held, two clicks → one DELETE request, banner hidden, list empty) that fails before the fix. Decision: see
+      "In-flight delete guard (R16)".
+
 ### REST API
 
 ### Web UI
@@ -113,10 +148,42 @@ Each evidence command is run from the repo root as
   from the list. Chosen: the edit ends with no request, as a blur would (the item is no longer shown or exists).
   Rejected: keeping a hidden edit open in state, because it would have no visible input and no way to finish it
   except by the filter coming back. Spec: 02 (filters, AC-UI-6; inline edit, AC-UI-7).
+- **DELETE ignores request bodies (R13, review 2026-11-02).** Spec 01 scopes the Content-Type/JSON-body rules to
+  POST/PATCH and gives DELETE no body. Chosen: both DELETE routes ignore any body and Content-Type. Rejected:
+  keeping today's 400 (contradicts the POST/PATCH scope and blocks common clients), and accepting only an empty
+  JSON body while still rejecting other types (an extra rule the spec does not state). The `completed=true` guard
+  is unchanged.
+- **Review scope (review 2026-11-02, R13/R14 pass).** Also behaved per spec 01 and not recorded: encoded traversal
+  (`/%2e%2e/package.json`, `/..%2fpackage.json`, `/%2e%2e/src/app.ts`) → JSON 404; `/src/app.ts` → 404; a 150-char
+  id → 404; `filter=all&filter=all` and `completed=TRUE` → 400; `filter[]=all` and `FILTER=active` are unknown
+  params and ignored (200); a GET with an invalid JSON body is ignored (200). Titles render via `textContent` and
+  `setAttribute`, so no HTML injection path was found.
+- **Resync after a failed first load (R15, review 2026-11-02).** Spec 02 says an API error must end with the screen
+  matching the server, but item 16 chose not to retry a failed first load (no loop against a dead server). Chosen:
+  keep that (no automatic retry or timer), and re-fetch the list after the next action the server accepts, because
+  that proves the server is back. Rejected: a timed retry loop (adds behaviour the spec does not describe), and
+  today's behaviour (the banner is cleared while the list is missing server items).
+- **In-flight delete guard (R16, review 2026-11-02).** Spec 02 does not cover repeated clicks on 삭제. Chosen:
+  silently ignore a delete, toggle or edit on an item whose DELETE is still pending (no request, no banner). This
+  matches the R8 add guard. Rejected: disabling the buttons (adds visible UI states spec 02 does not describe), and
+  sending the request anyway (the server's correct 404 turns into a false error for one user action).
+- **Review scope (review 2026-11-02, R16 pass).** Also behaved per spec 01 and not recorded: 416/412 error replies
+  carry no static headers (`content-range`/`etag`); `If-None-Match: *` → 304 (a normal cache hit); `HEAD /nope` and
+  `/.git/config` → JSON 404; `filter=` → 400; an empty or `multipart/form-data` Content-Type on POST → 400.
+  `charset=utf-16le` and `content-encoding: gzip` on a plain JSON body are accepted (201). Chosen: keep that, because
+  spec 01 sets no charset or encoding rule.
 - The three former questions (blur behaviour, unsupported Content-Type, JSON 404 for browser navigations) are
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R13. A body-less DELETE with a `Content-Type` header was refused (review 2026-11-02).** `src/app.ts` adds an
+  `onRequest` hook that removes `content-type`, `content-length` and `transfer-encoding` from DELETE requests before
+  Fastify parses the body, so both DELETE routes ignore any header or body (spec 01 scopes the body rules to
+  POST/PATCH). `src/routes/todos.ts` comment updated. Tests in `tests/delete-body.api.test.ts` (4 cases: `application/json`
+  with an empty body and `text/plain` with body `x`, for `DELETE /api/todos/:id` and `DELETE /api/todos?completed=true`).
+  All 4 failed before the fix (400). Decision: see "DELETE ignores request bodies (R13)". `npm run check` is green
+  (220 tests).
 
 - **R12. "완료 항목 삭제" during an in-flight toggle left the list different from the server (review 2026-11-02).**
   `public/app.js` `clearCompleted` now calls `loadList()` after `DELETE ?completed=true` succeeds, instead of
