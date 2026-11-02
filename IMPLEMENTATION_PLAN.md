@@ -18,7 +18,8 @@ Confirmed by reading the repo, not assumed:
   Biome ignores `*.md`, `.claude`, `.ralph`, `data`.
 - No TODOs, skips or placeholders exist, because no app code exists.
 - Coverage (updated 2026-11-02 after the review fixes): all 20 ACs (AC-API-1…12, AC-UI-1…8) have passing tests, and
-  review findings R1–R18 are done (R12 red-before-fix not run, see Done). Only the manual smoke test is blocked (see "Blocked").
+  review findings R1–R18 and R23 are done (R12 red-before-fix not run, see Done). R20, R21 and R22 are open. Only the manual smoke
+  test is blocked (see "Blocked").
 - Latest spec edits (uncommitted, human-owned) answer all three former open questions:
   - 01: a non-`application/json` Content-Type on POST/PATCH → **400 `VALIDATION_ERROR`** (not Fastify's 415).
   - 01: a browser opening an unknown path gets the raw **JSON 404**; no HTML error page.
@@ -40,6 +41,44 @@ Each evidence command is run from the repo root as
 `node --input-type=module -e "import { buildApp } from './src/app.ts'; const app = buildApp({ dbPath: ':memory:' }); const r = await app.inject(<ARGS>); console.log(r.statusCode, r.body); await app.close();"`.
 
 - [x] **R18. Keyboard focus is lost to `<body>` after every toggle or inline-edit save** (medium) — moved to Done.
+
+DOM evidence (R20, R21) uses a happy-dom script run from the repo root as
+`node --input-type=module -e "import { Window } from 'happy-dom'; import { readFileSync } from 'node:fs'; import { createApi } from './public/api.js'; import { startApp } from './public/app.js'; const w = new Window({ url: 'http://x.local/' }); const d = w.document; d.body.innerHTML = /<body[^>]*>([\s\S]*)<\/body>/.exec(readFileSync('public/index.html','utf8'))[1].replace(/<script[\s\S]*?<\/script>/g,''); <STUB fetch f>; await startApp({ document: d, window: w, api: createApi(f) }); <STEPS>; await w.happyDOM.close();"`.
+(R19 was used for a review pass with no finding, so numbering continues at R20.)
+
+- [ ] **R20. Keyboard focus falls to `<body>` when the focused item leaves the list** (medium) — Evidence: the script
+      above with 3 seeded active todos, a stub fetch (GET → the list, DELETE → 204, PATCH → the first todo with
+      `completed: true` and a newer `updatedAt`). Steps: focus item 2's 삭제 and `.click()` → printed
+      `before: 삭제: t2` then `after delete: BODY 2`. Then set `#/active`, focus item 1's checkbox and `.click()` →
+      `after toggle in active filter: BODY 1`. Expected: spec 02 접근성 ("모든 컨트롤은 키보드만으로 조작 가능"). A keyboard
+      user must Tab from the top of the page after every delete, and after every toggle under 진행 중/완료. R18 left
+      this case open ("a later item can decide"). Fix: in `render()`, when the recorded `control` belongs to an item
+      that is no longer shown, focus the same control class on the item that now sits at the old index (else the
+      previous one), and fall back to `#new-title` when the list is empty. See decision "Focus when the item leaves
+      the list (R20)". Add regression tests in `tests/ui.dom.test.ts` (`R20:`: delete the middle item → next item's
+      삭제 is focused; delete the last remaining item → `#new-title` is focused; toggle under `#/active` → the next
+      item's checkbox is focused) that fail before the fix.
+- [ ] **R22. A list response that started before "완료 항목 삭제" brings the deleted items back** (medium) — Evidence:
+      the DOM script above with server `[A completed, B active]` and a stub fetch where the first GET snapshots the
+      server and is held, later GETs answer at once, and `DELETE ?completed=true` removes completed items and returns
+      `{deleted:n}`. Steps: `startApp(...)` (do not await), click `#clear-completed`, flush, print, then release the
+      first GET and flush → printed `after clear: B | server: B` then `after stale GET: A,B | 1개 남음 | server: B |
+      gets: 2`. The same happens to a `resync()` GET that is in flight when the clear runs. Cause: `clearCompleted`
+      changes the server but does not bump `changes`, so the older `loadList()` sees `started === changes` and
+      overwrites the fresh list (the R5 guard misses this action). Expected: spec 02 (API 오류 → 화면 상태를 서버와 다시
+      맞춘다; 완료 항목 삭제) — the screen must not show items the server already deleted. Fix: in `clearCompleted`,
+      bump `changes` once `api.clearCompleted()` resolves (before its `loadList()`), so every list request that
+      started earlier is fetched again. Add a regression test in `tests/ui.dom.test.ts` (`R22:`: hold the first GET,
+      clear, release → titles `['B']`, `1개 남음`) that fails before the fix.
+- [ ] **R21. A stale "제목을 입력하세요." hint stays next to a valid title after a failed add** (low) — Evidence: the
+      script above with a stub fetch (GET → `[]`, anything else → 500 `INTERNAL_ERROR` envelope). Steps: click 추가 on
+      an empty input, then set the input to `'우유 사기'` and click 추가 → printed `hint after empty: "제목을 입력하세요."`
+      then `input: 우유 사기 | hint: "제목을 입력하세요." | banner: 서버 오류가 발생했습니다.`. The same stale hint stays
+      after a successful add when the input changed meanwhile (R14 path). Expected: spec 02 (빈 제목으로 추가 시도 →
+      안내 문구) — the hint describes an empty-title attempt; the submitted title was valid, and the banner already
+      reports the server error. Fix: in `submit()`, clear `hint.textContent` as soon as `validateTitle` passes, before
+      the POST. Add a regression test in `tests/ui.dom.test.ts` (`R21:`: empty submit, then a valid submit whose POST
+      fails → hint is `''`, input keeps the title, banner shows the message) that fails before the fix.
 
 ### REST API
 
@@ -171,6 +210,30 @@ Each evidence command is run from the repo root as
   no-op PATCH), and U+0085 / U+200B titles are accepted because `String.prototype.trim` does not strip them (the
   server and UI apply the same rule, as spec 01 requires). Re-checked by reading `public/app.js` against R17/R18: no
   further UI drift found beyond those two open items.
+- **Focus when the item leaves the list (R20, review 2026-11-02).** Spec 02 requires keyboard-only operation but does
+  not say where focus goes when the focused item is deleted or filtered out. Chosen: the same control on the item now
+  at the old position, else the previous item, else the add input `#new-title` (the list is empty). This is the
+  conservative extension of the R18 decision (stay on the same kind of control, close to where the user was).
+  Rejected: leaving focus to the browser (falls to `<body>`), and always moving focus to `#new-title` (jumps away
+  from the list the user is working through). Severity medium, matching R18.
+- **Review scope (review 2026-11-02, R20/R21 pass).** Read `src/*` and `public/*` again. Server code, SQL (bound
+  parameters and constant `WHERE` fragments only), error mapping and static serving showed no new defect beyond the
+  probes already listed above. `src/server.ts` has no SIGTERM handler; not recorded, because `node:sqlite` commits
+  each statement, so no data is lost on exit.
+- **Review scope (review 2026-11-02, R22 pass).** Re-read `src/*` and `public/*`. Server: no new defect (SQL uses
+  bound parameters only; every error goes through `toErrorResponse`). UI: checked whether clicking 삭제 on a completed
+  item while "완료 항목 삭제" is in flight leaves a false 404 banner. It does not: the DELETE gets a 404, but the clear's
+  success then hides the banner, and the list ends as `B` like the server. Not recorded. Only R22 was confirmed.
+- **Empty `PORT`/`HOST` (R23, review 2026-11-02).** Spec 03 gives only the defaults (3000, 127.0.0.1). Chosen: an
+  empty or whitespace-only value counts as unset, matching the R6 decision for `DB_PATH`. Rejected: failing fast at
+  startup (stricter than the spec implies) and today's behaviour (random port; all interfaces, which exposes the
+  single-user service on the network). A non-numeric `PORT` is out of scope for R23 (Fastify already refuses it and
+  `server.ts` exits 1). Evidence was gathered without starting a server (AGENTS.md), from the env expressions, the
+  Fastify host defaulting code and `dns.lookup('')`.
+- **Review scope (review 2026-11-02, R23 pass).** Also behaved per spec 01 and not recorded: a whitespace-only JSON
+  body → 400; `content-encoding: br` on a plain JSON body and `transfer-encoding: chunked` → 201; an invalid UTF-8 byte
+  in the title → 201 with U+FFFD (same as R4); `filter=%61ctive` → 200; trailing garbage after JSON → 400; a `Range`
+  request on `/index.html` → 206 (a normal partial response). UI re-read: no new confirmed defect beyond R20–R22.
 - **Blur-cancel keeps the rest of the list (R17, review 2026-11-02).** Spec 02 / AC-UI-7 says blur cancels the edit
   with no request and the original title restored. It does not say how the rest of the list is redrawn. Chosen: blur
   swaps only the editor back to the title span, so a control the user is pressing (a mousedown in progress) stays in
@@ -180,6 +243,14 @@ Each evidence command is run from the repo root as
   answered in specs 01/02. See "Current state".
 
 ## Done
+
+- **R23. An empty `PORT` or `HOST` listened on a random port / on every interface (review 2026-11-02).** New
+  `src/config.ts` `resolveListenOptions(env)`: an empty or whitespace-only `PORT` or `HOST` counts as unset, so the
+  defaults 3000 and 127.0.0.1 apply. `src/server.ts` uses it. Before the fix, `PORT=''` gave port 0 (random) and
+  `HOST=''` reached `listen` unchanged (all interfaces). Tests in `tests/listen-options.test.ts` (`R23:` ×4 plus
+  defaults and explicit values). Red-before-fix: the test file failed at import (`src/config.ts` did not exist), which
+  is a missing-module red, the same as R6. The behavioural cases are then green. Decision: see "Empty `PORT`/`HOST`
+  (R23)". `npm run check` is green (234 tests).
 
 - **R18. Keyboard focus fell to `<body>` after a toggle or an inline-edit save (review 2026-11-02).** `public/app.js`
   `render()` records the focused per-item control (`focusedControl()`: item id and class `todo-toggle` /
